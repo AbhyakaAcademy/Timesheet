@@ -1,0 +1,33 @@
+from django.urls import path
+
+from timesheets.views import (
+    AddTimesheetLineView,
+    ApproveTimesheetView,
+    CurrentTimesheetView,
+    EmployeeDashboardSummaryView,
+    ManagerTimesheetDetailView,
+    ManagerTimesheetListView,
+    ManualTimeEntryView,
+    ProjectListView,
+    PunchInView,
+    PunchOutView,
+    RejectTimesheetView,
+    SubmitTimesheetView,
+    TimesheetLineDetailView,
+)
+
+urlpatterns = [
+    path("projects", ProjectListView.as_view(), name="projects_list"),
+    path("employee/dashboard-summary", EmployeeDashboardSummaryView.as_view(), name="employee_dashboard_summary"),
+    path("time-entries/punch-in", PunchInView.as_view(), name="punch_in"),
+    path("time-entries/<int:entry_id>/punch-out", PunchOutView.as_view(), name="punch_out"),
+    path("time-entries/manual", ManualTimeEntryView.as_view(), name="manual_time_entry"),
+    path("timesheets/current", CurrentTimesheetView.as_view(), name="current_timesheet"),
+    path("timesheets/<int:timesheet_id>/lines", AddTimesheetLineView.as_view(), name="add_timesheet_line"),
+    path("timesheet-lines/<int:line_id>", TimesheetLineDetailView.as_view(), name="timesheet_line_detail"),
+    path("timesheets/<int:timesheet_id>/submit", SubmitTimesheetView.as_view(), name="submit_timesheet"),
+    path("manager/timesheets", ManagerTimesheetListView.as_view(), name="manager_timesheets"),
+    path("manager/timesheets/<int:timesheet_id>", ManagerTimesheetDetailView.as_view(), name="manager_timesheet_detail"),
+    path("manager/timesheets/<int:timesheet_id>/approve", ApproveTimesheetView.as_view(), name="approve_timesheet"),
+    path("manager/timesheets/<int:timesheet_id>/reject", RejectTimesheetView.as_view(), name="reject_timesheet"),
+]
