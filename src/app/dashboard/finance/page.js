@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { clearSession } from '@/lib/auth'
 
 const navItems = [
   { id: 'clients', label: 'Clients', icon: UsersIcon },
@@ -12,349 +14,110 @@ const navItems = [
   { id: 'exports', label: 'Exports', icon: ExportsIcon }
 ]
 
-const clients = [
-  {
-    id: 'client-1',
-    name: 'Acme Corporation',
-    gstin: '29ABCDE1234F1Z5',
-    email: 'contact@acme.com',
-    phone: '+91 98765 43210',
-    address: '123 Business Park',
-    state: 'Karnataka',
-    projects: 5,
-    status: 'Active'
-  },
-  {
-    id: 'client-2',
-    name: 'TechStart Industries',
-    gstin: '27FGHIJ5678K2Y6',
-    email: 'info@techstart.com',
-    phone: '+91 98765 43211',
-    address: '87 Innovation Street',
-    state: 'Maharashtra',
-    projects: 3,
-    status: 'Active'
-  },
-  {
-    id: 'client-3',
-    name: 'Global Solutions Ltd',
-    gstin: '07KLMNO9012L3X7',
-    email: 'hello@globalsolutions.com',
-    phone: '+91 98765 43212',
-    address: '55 Tech Plaza',
-    state: 'Delhi',
-    projects: 7,
-    status: 'Active'
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000/api'
+
+function getAccessToken() {
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem('accessToken') || ''
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
   }
-]
-
-const projects = [
-  {
-    name: 'Website Redesign',
-    client: 'Acme Corporation',
-    status: 'Active',
-    hours: { current: 145, total: 200 },
-    budget: { current: 362500, total: 500000 },
-    tasks: [
-      { name: 'UI/UX Design', code: 'DES-001' },
-      { name: 'Frontend Development', code: 'DEV-001' },
-      { name: 'Backend Development', code: 'DEV-002' }
-    ]
-  },
-  {
-    name: 'Mobile App Development',
-    client: 'TechStart Industries',
-    status: 'Active',
-    hours: { current: 120, total: 400 },
-    budget: { current: 360000, total: 1200000 },
-    tasks: [
-      { name: 'iOS Development', code: 'MOB-001' },
-      { name: 'Android Development', code: 'MOB-002' },
-      { name: 'API Integration', code: 'INT-001' }
-    ]
-  },
-  {
-    name: 'ERP System Implementation',
-    client: 'Global Solutions Ltd',
-    status: 'Active',
-    hours: { current: 520, total: 600 },
-    budget: { current: 1733333, total: 2000000 },
-    tasks: [
-      { name: 'Requirements Analysis', code: 'ANA-001' },
-      { name: 'System Configuration', code: 'CFG-001' },
-      { name: 'Testing & Training', code: 'TST-001' }
-    ]
+  const token = getAccessToken()
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
   }
-]
 
-const projectRates = [
-  { name: 'Website Redesign', rate: 2500 },
-  { name: 'Mobile App Development', rate: 3000 },
-  { name: 'ERP System Implementation', rate: 3500 }
-]
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers
+  })
 
-const roleRates = [
-  { name: 'Senior Developer', rate: 3200 },
-  { name: 'UX Designer', rate: 2400 },
-  { name: 'QA Engineer', rate: 1800 }
-]
-
-const employeeRates = [
-  { name: 'Ayesha Khan', rate: 3500 },
-  { name: 'Rahul Sharma', rate: 2800 },
-  { name: 'Sneha Patel', rate: 2600 }
-]
-
-const approvedTimeEntries = [
-  {
-    id: 'te1',
-    date: '2026-01-10',
-    employeeName: 'Rahul Sharma',
-    projectName: 'Website Redesign',
-    taskName: 'UI/UX Design',
-    hours: 40,
-    rate: 2500,
-    billable: true,
-    approved: true,
-    amount: 100000
-  },
-  {
-    id: 'te2',
-    date: '2026-01-15',
-    employeeName: 'Priya Patel',
-    projectName: 'Website Redesign',
-    taskName: 'Frontend Development',
-    hours: 40,
-    rate: 2500,
-    billable: true,
-    approved: true,
-    amount: 100000
-  },
-  {
-    id: 'te3',
-    date: '2026-01-20',
-    employeeName: 'Amit Kumar',
-    projectName: 'Mobile App Development',
-    taskName: 'iOS Development',
-    hours: 50,
-    rate: 3000,
-    billable: true,
-    approved: true,
-    amount: 150000
+  if (response.status === 204) {
+    return null
   }
-]
 
-const approvedExpenses = [
-  {
-    id: 'ex1',
-    date: '2026-01-12',
-    employeeName: 'Rahul Sharma',
-    projectName: 'Website Redesign',
-    description: 'Cloud Hosting Services',
-    amount: 50000,
-    billable: true,
-    approved: true
-  },
-  {
-    id: 'ex2',
-    date: '2026-01-18',
-    employeeName: 'Priya Patel',
-    projectName: 'Mobile App Development',
-    description: 'Software Licenses',
-    amount: 30000,
-    billable: true,
-    approved: true
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(data?.error?.message || data?.detail || 'Request failed')
   }
-]
+  return data
+}
 
-const initialInvoices = [
-  {
-    id: '1',
-    invoiceNumber: 'INV-2026-001',
-    financialYear: '2025-26',
-    clientName: 'Acme Corporation',
-    clientGSTIN: '29ABCDE1234F1Z5',
-    clientAddress: '123 Business Park, Bangalore',
-    clientState: 'Karnataka',
-    invoiceDate: '2026-01-15',
-    dueDate: '2026-02-15',
-    status: 'Sent',
-    subtotal: 250000,
-    cgst: 22500,
-    sgst: 22500,
-    igst: 0,
-    total: 295000,
-    supplierName: 'Your Company Name',
-    supplierGSTIN: '29XYZAB5678C2D1',
-    supplierAddress: '123 Business Street, Bangalore',
-    supplierState: 'Karnataka',
-    groupBy: 'project',
-    generatedFrom: {
-      timeEntryIds: ['te1', 'te2'],
-      expenseIds: ['ex1']
-    },
-    lineItems: [
-      {
-        id: 'li1',
-        description: 'Website Redesign - UI/UX Design',
-        sacHsn: '998314',
-        quantity: 40,
-        rate: 2500,
-        taxRate: 18,
-        amount: 100000,
-        sourceType: 'time',
-        sourceIds: ['te1']
-      },
-      {
-        id: 'li2',
-        description: 'Website Redesign - Frontend Development',
-        sacHsn: '998314',
-        quantity: 40,
-        rate: 2500,
-        taxRate: 18,
-        amount: 100000,
-        sourceType: 'time',
-        sourceIds: ['te2']
-      },
-      {
-        id: 'li3',
-        description: 'Website Redesign - Cloud Hosting Services',
-        sacHsn: '998314',
-        quantity: 1,
-        rate: 50000,
-        taxRate: 18,
-        amount: 50000,
-        sourceType: 'expense',
-        sourceIds: ['ex1']
-      }
-    ]
-  },
-  {
-    id: '2',
-    invoiceNumber: 'INV-2026-002',
-    financialYear: '2025-26',
-    clientName: 'TechStart Industries',
-    clientGSTIN: '27FGHIJ5678K2Y6',
-    clientAddress: '456 Tech Hub, Mumbai',
-    clientState: 'Maharashtra',
-    invoiceDate: '2026-01-20',
-    dueDate: '2026-02-20',
-    status: 'Paid',
-    subtotal: 360000,
-    cgst: 0,
-    sgst: 0,
-    igst: 64800,
-    total: 424800,
-    supplierName: 'Your Company Name',
-    supplierGSTIN: '29XYZAB5678C2D1',
-    supplierAddress: '123 Business Street, Bangalore',
-    supplierState: 'Karnataka',
-    groupBy: 'employee',
-    generatedFrom: {
-      timeEntryIds: ['te3'],
-      expenseIds: ['ex2']
-    },
-    lineItems: [
-      {
-        id: 'li4',
-        description: 'Amit Kumar - iOS Development',
-        sacHsn: '998314',
-        quantity: 60,
-        rate: 5000,
-        taxRate: 18,
-        amount: 300000,
-        sourceType: 'time',
-        sourceIds: ['te3']
-      },
-      {
-        id: 'li5',
-        description: 'Priya Patel - Software Licenses',
-        sacHsn: '998314',
-        quantity: 1,
-        rate: 60000,
-        taxRate: 18,
-        amount: 60000,
-        sourceType: 'expense',
-        sourceIds: ['ex2']
-      }
-    ]
-  },
-  {
-    id: '3',
-    invoiceNumber: 'INV-2026-003',
-    financialYear: '2025-26',
-    clientName: 'Global Solutions Ltd',
-    clientGSTIN: '07KLMNO9012L3X7',
-    clientAddress: '55 Tech Plaza, Delhi',
-    clientState: 'Delhi',
-    invoiceDate: '2026-02-01',
-    dueDate: '2026-03-01',
-    status: 'Overdue',
-    subtotal: 450000,
-    cgst: 40500,
-    sgst: 40500,
-    igst: 0,
-    total: 531000,
-    supplierName: 'Your Company Name',
-    supplierGSTIN: '29XYZAB5678C2D1',
-    supplierAddress: '123 Business Street, Bangalore',
-    supplierState: 'Karnataka',
-    groupBy: 'project',
-    generatedFrom: {
-      timeEntryIds: [],
-      expenseIds: []
-    },
-    lineItems: [
-      {
-        id: 'li6',
-        description: 'ERP System Implementation - Development Services',
-        sacHsn: '998314',
-        quantity: 120,
-        rate: 3000,
-        taxRate: 18,
-        amount: 360000,
-        sourceType: 'time',
-        sourceIds: []
-      },
-      {
-        id: 'li7',
-        description: 'ERP System Implementation - Infrastructure Setup',
-        sacHsn: '998314',
-        quantity: 1,
-        rate: 90000,
-        taxRate: 18,
-        amount: 90000,
-        sourceType: 'expense',
-        sourceIds: []
-      }
-    ]
+function normalizeInvoice(invoice) {
+  return {
+    ...invoice,
+    invoiceNumber: invoice.invoiceNumber || invoice.invoice_number,
+    financialYear: invoice.financialYear || invoice.financial_year || '',
+    clientName: invoice.clientName || invoice.client_name || '',
+    clientGSTIN: invoice.clientGSTIN || invoice.client_gstin || '',
+    clientAddress: invoice.clientAddress || invoice.client_address || '',
+    clientState: invoice.clientState || invoice.client_state || '',
+    invoiceDate: invoice.invoiceDate || invoice.issued_on || '',
+    dueDate: invoice.dueDate || invoice.due_date || '',
+    supplierName: invoice.supplierName || invoice.supplier_name || '',
+    supplierGSTIN: invoice.supplierGSTIN || invoice.supplier_gstin || '',
+    supplierAddress: invoice.supplierAddress || invoice.supplier_address || '',
+    supplierState: invoice.supplierState || invoice.supplier_state || '',
+    groupBy: invoice.groupBy || invoice.group_by || 'project',
+    generatedFrom: invoice.generatedFrom || invoice.generated_from || { timeEntryIds: [], expenseIds: [] },
+    total: Number(invoice.total || invoice.total_amount || 0),
+    subtotal: Number(invoice.subtotal || 0),
+    cgst: Number(invoice.cgst || 0),
+    sgst: Number(invoice.sgst || 0),
+    igst: Number(invoice.igst || 0),
+    lineItems: (invoice.lineItems || invoice.line_items || []).map(item => ({
+      ...item,
+      sacHsn: item.sacHsn || item.sac_hsn || '',
+      taxRate: Number(item.taxRate || item.tax_rate || 0),
+      sourceType: item.sourceType || item.source_type || 'manual',
+      sourceIds: item.sourceIds || item.source_ids || [],
+      quantity: Number(item.quantity || 0),
+      rate: Number(item.rate || 0),
+      amount: Number(item.amount || 0)
+    }))
   }
-]
+}
 
-const exportsRecent = [
-  {
-    title: 'Billing Report',
-    range: 'Jan 1, 2026 - Jan 31, 2026',
-    format: 'Excel'
-  },
-  {
-    title: 'Payroll Report',
-    range: 'Jan 1, 2026 - Jan 31, 2026',
-    format: 'CSV'
-  },
-  {
-    title: 'GST Report',
-    range: 'Q4 FY 2025-26',
-    format: 'PDF'
+function normalizeExportJob(job) {
+  const createdAt = job.created_at || job.createdAt || new Date().toISOString()
+  return {
+    id: String(job.id),
+    reportName: job.title,
+    reportType: job.title,
+    format: job.format,
+    exportedBy: 'Finance Admin',
+    exportedAt: new Date(createdAt).toLocaleString('en-IN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }),
+    timestamp: createdAt,
+    fileSize: 'N/A',
+    status: job.status === 'READY' ? 'Success' : job.status
   }
-]
+}
 
 export default function FinanceDashboard() {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState('clients')
+
+  const handleLogout = () => {
+    clearSession()
+    router.push('/login')
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
-      <Sidebar activeTab={activeTab} onSelect={setActiveTab} />
+      <Sidebar activeTab={activeTab} onSelect={setActiveTab} onLogout={handleLogout} />
       <main className="flex-1 px-10 py-8">
         {activeTab === 'clients' && <ClientsSection />}
         {activeTab === 'projects' && <ProjectsSection />}
@@ -367,7 +130,7 @@ export default function FinanceDashboard() {
   )
 }
 
-function Sidebar({ activeTab, onSelect }) {
+function Sidebar({ activeTab, onSelect, onLogout }) {
   return (
     <aside className="w-72 bg-white border-r border-slate-200 min-h-screen flex flex-col">
       <div className="px-8 py-6 border-b border-slate-200">
@@ -404,7 +167,11 @@ function Sidebar({ activeTab, onSelect }) {
             <p className="text-xs text-slate-500">admin@finance.com</p>
           </div>
         </div>
-        <button className="mt-6 flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
+        <button
+          type="button"
+          onClick={onLogout}
+          className="mt-6 flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+        >
           <LogoutIcon />
           Logout
         </button>
@@ -414,7 +181,7 @@ function Sidebar({ activeTab, onSelect }) {
 }
 
 function ClientsSection() {
-  const [items, setItems] = useState(clients)
+  const [items, setItems] = useState([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingClient, setEditingClient] = useState(null)
   const [openMenuId, setOpenMenuId] = useState(null)
@@ -426,6 +193,12 @@ function ClientsSection() {
     address: '',
     state: ''
   })
+
+  useEffect(() => {
+    apiFetch('/finance/clients')
+      .then(setItems)
+      .catch(error => console.error('Failed to load clients', error))
+  }, [])
 
   const openAddModal = () => {
     setEditingClient(null)
@@ -454,31 +227,26 @@ function ClientsSection() {
     setIsModalOpen(true)
   }
 
-  const handleSave = event => {
+  const handleSave = async event => {
     event.preventDefault()
     if (editingClient) {
-      setItems(prev =>
-        prev.map(item =>
-          item.id === editingClient.id
-            ? { ...item, ...formValues }
-            : item
-        )
-      )
+      const updated = await apiFetch(`/finance/clients/${editingClient.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(formValues)
+      })
+      setItems(prev => prev.map(item => (item.id === editingClient.id ? updated : item)))
     } else {
-      setItems(prev => [
-        ...prev,
-        {
-          id: `client-${Date.now()}`,
-          ...formValues,
-          projects: 0,
-          status: 'Active'
-        }
-      ])
+      const created = await apiFetch('/finance/clients', {
+        method: 'POST',
+        body: JSON.stringify(formValues)
+      })
+      setItems(prev => [...prev, created])
     }
     setIsModalOpen(false)
   }
 
-  const handleDelete = clientId => {
+  const handleDelete = async clientId => {
+    await apiFetch(`/finance/clients/${clientId}`, { method: 'DELETE' })
     setItems(prev => prev.filter(item => item.id !== clientId))
     setOpenMenuId(null)
   }
@@ -579,7 +347,7 @@ function ClientsSection() {
 }
 
 function ProjectsSection() {
-  const [items, setItems] = useState(projects)
+  const [items, setItems] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingProject, setEditingProject] = useState(null)
@@ -594,6 +362,12 @@ function ProjectsSection() {
   })
   const [newTaskName, setNewTaskName] = useState('')
   const [newTaskCode, setNewTaskCode] = useState('')
+
+  useEffect(() => {
+    apiFetch('/finance/projects')
+      .then(setItems)
+      .catch(error => console.error('Failed to load projects', error))
+  }, [])
 
   const filteredProjects = items.filter(project => {
     const query = searchQuery.toLowerCase()
@@ -662,59 +436,38 @@ function ProjectsSection() {
     }))
   }
 
-  const handleSaveProject = event => {
+  const handleSaveProject = async event => {
     event.preventDefault()
+    const payload = {
+      name: formData.name,
+      client: formData.client,
+      budgetHours: formData.budgetHours,
+      budgetAmount: formData.budgetAmount,
+      alertThreshold: formData.alertThreshold,
+      tasks: formData.tasks
+    }
     if (editingProject) {
+      const updated = await apiFetch(`/finance/projects/${editingProject.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      })
       setItems(prev =>
-        prev.map(project =>
-          project.name === editingProject.name
-            ? {
-                ...project,
-                name: formData.name,
-                client: formData.client,
-                hours: {
-                  ...project.hours,
-                  total: formData.budgetHours
-                    ? Number(formData.budgetHours)
-                    : project.hours.total
-                },
-                budget: {
-                  ...project.budget,
-                  total: formData.budgetAmount
-                    ? Number(formData.budgetAmount)
-                    : project.budget.total
-                },
-                alertThreshold: Number(formData.alertThreshold) || 80,
-                tasks: formData.tasks
-              }
-            : project
-        )
+        prev.map(project => (project.id === editingProject.id ? updated : project))
       )
     } else {
-      setItems(prev => [
-        ...prev,
-        {
-          name: formData.name,
-          client: formData.client,
-          status: 'Active',
-          hours: {
-            current: 0,
-            total: formData.budgetHours ? Number(formData.budgetHours) : 0
-          },
-          budget: {
-            current: 0,
-            total: formData.budgetAmount ? Number(formData.budgetAmount) : 0
-          },
-          alertThreshold: Number(formData.alertThreshold) || 80,
-          tasks: formData.tasks
-        }
-      ])
+      const created = await apiFetch('/finance/projects', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
+      setItems(prev => [...prev, created])
     }
     setIsModalOpen(false)
+    setEditingProject(null)
   }
 
-  const handleDeleteProject = projectName => {
-    setItems(prev => prev.filter(project => project.name !== projectName))
+  const handleDeleteProject = async projectId => {
+    await apiFetch(`/finance/projects/${projectId}`, { method: 'DELETE' })
+    setItems(prev => prev.filter(project => project.id !== projectId))
     setOpenMenuId(null)
   }
 
@@ -756,10 +509,10 @@ function ProjectsSection() {
                   <p className="text-sm text-slate-500">{project.client}</p>
                 </div>
                 <div className="relative inline-flex" data-project-menu>
-                  <IconButton onClick={() => toggleMenu(project.name)}>
+                  <IconButton onClick={() => toggleMenu(project.id)}>
                     <DotsIcon />
                   </IconButton>
-                  {openMenuId === project.name ? (
+                  {openMenuId === project.id ? (
                     <div className="absolute right-0 top-11 w-36 rounded-xl border border-slate-200 bg-white py-2 text-left text-sm shadow-lg">
                           <button
                             type="button"
@@ -771,7 +524,7 @@ function ProjectsSection() {
                           <button
                             type="button"
                             className="w-full px-4 py-2 text-left text-rose-600 hover:bg-rose-50"
-                            onClick={() => handleDeleteProject(project.name)}
+                            onClick={() => handleDeleteProject(project.id)}
                           >
                             Delete
                           </button>
@@ -858,29 +611,9 @@ function RatesSection() {
   const [editingItem, setEditingItem] = useState(null)
   const [editingType, setEditingType] = useState('project')
   const [openMenuId, setOpenMenuId] = useState(null)
-  const [projectRateItems, setProjectRateItems] = useState(
-    projectRates.map((rate, index) => ({
-      id: `project-${index + 1}`,
-      projectName: rate.name,
-      hourlyRate: rate.rate
-    }))
-  )
-  const [roleRateItems, setRoleRateItems] = useState(
-    roleRates.map((rate, index) => ({
-      id: `role-${index + 1}`,
-      roleName: rate.name,
-      hourlyRate: rate.rate
-    }))
-  )
-  const [employeeRateItems, setEmployeeRateItems] = useState(
-    employeeRates.map((rate, index) => ({
-      id: `employee-${index + 1}`,
-      employeeName: rate.name,
-      projectName: projects[index % projects.length]?.name || 'Website Redesign',
-      hourlyRate: rate.rate,
-      overridesRole: roleRates[index % roleRates.length]?.name || 'Senior Developer'
-    }))
-  )
+  const [projectRateItems, setProjectRateItems] = useState([])
+  const [roleRateItems, setRoleRateItems] = useState([])
+  const [employeeRateItems, setEmployeeRateItems] = useState([])
   const [projectFormData, setProjectFormData] = useState({
     projectName: '',
     hourlyRate: ''
@@ -895,6 +628,20 @@ function RatesSection() {
     hourlyRate: '',
     overridesRole: ''
   })
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch('/finance/rates/projects'),
+      apiFetch('/finance/rates/roles'),
+      apiFetch('/finance/rates/employees')
+    ])
+      .then(([projectRatesData, roleRatesData, employeeRatesData]) => {
+        setProjectRateItems(projectRatesData)
+        setRoleRateItems(roleRatesData)
+        setEmployeeRateItems(employeeRatesData)
+      })
+      .catch(error => console.error('Failed to load rates', error))
+  }, [])
 
   const filteredProjectRates = projectRateItems.filter(rate =>
     rate.projectName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -950,84 +697,71 @@ function RatesSection() {
     setIsModalOpen(true)
   }
 
-  const handleSave = event => {
+  const handleSave = async event => {
     event.preventDefault()
     if (editingType === 'project') {
       if (editingItem) {
+        const updated = await apiFetch(`/finance/rates/projects/${editingItem.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            projectName: projectFormData.projectName,
+            hourlyRate: projectFormData.hourlyRate
+          })
+        })
         setProjectRateItems(prev =>
-          prev.map(rate =>
-            rate.id === editingItem.id
-              ? {
-                  ...rate,
-                  projectName: projectFormData.projectName,
-                  hourlyRate: Number(projectFormData.hourlyRate)
-                }
-              : rate
-          )
+          prev.map(rate => (rate.id === editingItem.id ? updated : rate))
         )
       } else {
-        setProjectRateItems(prev => [
-          ...prev,
-          {
-            id: `project-${Date.now()}`,
+        const created = await apiFetch('/finance/rates/projects', {
+          method: 'POST',
+          body: JSON.stringify({
             projectName: projectFormData.projectName,
-            hourlyRate: Number(projectFormData.hourlyRate)
-          }
-        ])
+            hourlyRate: projectFormData.hourlyRate
+          })
+        })
+        setProjectRateItems(prev => [...prev, created])
       }
     }
 
     if (editingType === 'role') {
       if (editingItem) {
+        const updated = await apiFetch(`/finance/rates/roles/${editingItem.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            roleName: roleFormData.roleName,
+            hourlyRate: roleFormData.hourlyRate
+          })
+        })
         setRoleRateItems(prev =>
-          prev.map(rate =>
-            rate.id === editingItem.id
-              ? {
-                  ...rate,
-                  roleName: roleFormData.roleName,
-                  hourlyRate: Number(roleFormData.hourlyRate)
-                }
-              : rate
-          )
+          prev.map(rate => (rate.id === editingItem.id ? updated : rate))
         )
       } else {
-        setRoleRateItems(prev => [
-          ...prev,
-          {
-            id: `role-${Date.now()}`,
+        const created = await apiFetch('/finance/rates/roles', {
+          method: 'POST',
+          body: JSON.stringify({
             roleName: roleFormData.roleName,
-            hourlyRate: Number(roleFormData.hourlyRate)
-          }
-        ])
+            hourlyRate: roleFormData.hourlyRate
+          })
+        })
+        setRoleRateItems(prev => [...prev, created])
       }
     }
 
     if (editingType === 'employee') {
       if (editingItem) {
+        const updated = await apiFetch(`/finance/rates/employees/${editingItem.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(employeeFormData)
+        })
         setEmployeeRateItems(prev =>
-          prev.map(rate =>
-            rate.id === editingItem.id
-              ? {
-                  ...rate,
-                  employeeName: employeeFormData.employeeName,
-                  projectName: employeeFormData.projectName,
-                  hourlyRate: Number(employeeFormData.hourlyRate),
-                  overridesRole: employeeFormData.overridesRole
-                }
-              : rate
-          )
+          prev.map(rate => (rate.id === editingItem.id ? updated : rate))
         )
       } else {
-        setEmployeeRateItems(prev => [
-          ...prev,
-          {
-            id: `employee-${Date.now()}`,
-            employeeName: employeeFormData.employeeName,
-            projectName: employeeFormData.projectName,
-            hourlyRate: Number(employeeFormData.hourlyRate),
-            overridesRole: employeeFormData.overridesRole
-          }
-        ])
+        const created = await apiFetch('/finance/rates/employees', {
+          method: 'POST',
+          body: JSON.stringify(employeeFormData)
+        })
+        setEmployeeRateItems(prev => [...prev, created])
       }
     }
 
@@ -1036,12 +770,15 @@ function RatesSection() {
     resetForms()
   }
 
-  const handleDelete = (id, type) => {
+  const handleDelete = async (id, type) => {
     if (type === 'project') {
+      await apiFetch(`/finance/rates/projects/${id}`, { method: 'DELETE' })
       setProjectRateItems(prev => prev.filter(rate => rate.id !== id))
     } else if (type === 'role') {
+      await apiFetch(`/finance/rates/roles/${id}`, { method: 'DELETE' })
       setRoleRateItems(prev => prev.filter(rate => rate.id !== id))
     } else {
+      await apiFetch(`/finance/rates/employees/${id}`, { method: 'DELETE' })
       setEmployeeRateItems(prev => prev.filter(rate => rate.id !== id))
     }
     setOpenMenuId(null)
@@ -1281,7 +1018,7 @@ function RatesSection() {
 }
 
 function InvoicesSection() {
-  const [invoiceItems, setInvoiceItems] = useState(initialInvoices)
+  const [invoiceItems, setInvoiceItems] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -1314,6 +1051,23 @@ function InvoicesSection() {
     taxRate: '18'
   })
 
+  const [approvedEntries, setApprovedEntries] = useState([])
+  const [approvedExpenseItems, setApprovedExpenseItems] = useState([])
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch('/finance/invoices'),
+      apiFetch('/finance/approved-time-entries'),
+      apiFetch('/finance/expenses')
+    ])
+      .then(([invoices, timeEntries, expenses]) => {
+        setInvoiceItems(invoices.map(normalizeInvoice))
+        setApprovedEntries(timeEntries.filter(entry => entry.approved && entry.billable))
+        setApprovedExpenseItems(expenses.filter(expense => expense.approved && expense.billable))
+      })
+      .catch(error => console.error('Failed to load invoice data', error))
+  }, [])
+
   const filteredInvoices = invoiceItems.filter(invoice => {
     const matchesSearch =
       invoice.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1336,11 +1090,6 @@ function InvoicesSection() {
       .filter(inv => inv.status !== 'Paid' && inv.status !== 'Void')
       .reduce((sum, inv) => sum + inv.total, 0)
   }
-
-  const approvedEntries = approvedTimeEntries.filter(entry => entry.approved && entry.billable)
-  const approvedExpenseItems = approvedExpenses.filter(
-    expense => expense.approved && expense.billable
-  )
 
   const activeInvoice = invoiceItems.find(invoice => invoice.id === activeInvoiceId)
   const isInterState =
@@ -1371,10 +1120,14 @@ function InvoicesSection() {
     setIsCreateOpen(true)
   }
 
-  const handleStatusChange = (invoiceId, newStatus) => {
+  const handleStatusChange = async (invoiceId, newStatus) => {
+    const updated = await apiFetch(`/finance/invoices/${invoiceId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: newStatus })
+    })
     setInvoiceItems(prev =>
       prev.map(invoice =>
-        invoice.id === invoiceId ? { ...invoice, status: newStatus } : invoice
+        invoice.id === invoiceId ? normalizeInvoice(updated) : invoice
       )
     )
   }
@@ -1529,44 +1282,21 @@ function InvoicesSection() {
     return lineItems
   }
 
-  const handleCreateInvoice = () => {
+  const handleCreateInvoice = async () => {
     const lineItems = buildLineItems()
-    const totals = calculateTotals(
-      lineItems,
-      formData.supplierState,
-      formData.clientState
-    )
-    const invoiceNumber = generateInvoiceNumber(formData.financialYear)
-
-    const newInvoice = {
-      id: String(invoiceItems.length + 1),
-      invoiceNumber,
-      financialYear: formData.financialYear,
-      clientName: formData.clientName,
-      clientGSTIN: formData.clientGSTIN,
-      clientAddress: formData.clientAddress,
-      clientState: formData.clientState,
-      invoiceDate: formData.invoiceDate,
-      dueDate: formData.dueDate,
-      status: 'Draft',
-      subtotal: totals.subtotal,
-      cgst: totals.cgst,
-      sgst: totals.sgst,
-      igst: totals.igst,
-      total: totals.total,
-      supplierName: formData.supplierName,
-      supplierGSTIN: formData.supplierGSTIN,
-      supplierAddress: formData.supplierAddress,
-      supplierState: formData.supplierState,
-      groupBy: formData.groupBy,
-      generatedFrom: {
-        timeEntryIds: selectedTimeEntries,
-        expenseIds: selectedExpenses
-      },
-      lineItems
-    }
-
-    setInvoiceItems(prev => [...prev, newInvoice])
+    const created = await apiFetch('/finance/invoices', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...formData,
+        status: 'Draft',
+        generatedFrom: {
+          timeEntryIds: selectedTimeEntries,
+          expenseIds: selectedExpenses
+        },
+        lineItems
+      })
+    })
+    setInvoiceItems(prev => [...prev, normalizeInvoice(created)])
     setIsCreateOpen(false)
     resetCreateForm()
   }
@@ -1723,7 +1453,7 @@ function InvoicesSection() {
     setIsLineItemOpen(true)
   }
 
-  const handleSaveLineItem = () => {
+  const handleSaveLineItem = async () => {
     if (!activeInvoice) return
     const quantity = Number(lineItemForm.quantity) || 0
     const rate = Number(lineItemForm.rate) || 0
@@ -1757,17 +1487,13 @@ function InvoicesSection() {
           }
         ]
 
-    const totals = calculateTotals(
-      updatedItems,
-      activeInvoice.supplierState,
-      activeInvoice.clientState
-    )
-
+    const updatedInvoice = await apiFetch(`/finance/invoices/${activeInvoice.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ lineItems: updatedItems })
+    })
     setInvoiceItems(prev =>
       prev.map(invoice =>
-        invoice.id === activeInvoice.id
-          ? { ...invoice, lineItems: updatedItems, ...totals }
-          : invoice
+        invoice.id === activeInvoice.id ? normalizeInvoice(updatedInvoice) : invoice
       )
     )
     setIsLineItemOpen(false)
@@ -2551,63 +2277,9 @@ function InvoicesSection() {
 
 function ExportsSection() {
   const [exportTab, setExportTab] = useState('billing')
-  const [auditLogs, setAuditLogs] = useState([
-    {
-      id: '1',
-      reportName: 'Billing Report - January 2026',
-      reportType: 'Billing Report',
-      format: 'Excel',
-      exportedBy: 'Finance Admin',
-      exportedAt: '2026-02-07 14:30:25',
-      timestamp: new Date('2026-02-07T14:30:25').toISOString(),
-      fileSize: '245 KB',
-      status: 'Success'
-    },
-    {
-      id: '2',
-      reportName: 'Payroll Summary - Q4 2025',
-      reportType: 'Payroll Report',
-      format: 'PDF',
-      exportedBy: 'Finance Admin',
-      exportedAt: '2026-02-05 10:15:42',
-      timestamp: new Date('2026-02-05T10:15:42').toISOString(),
-      fileSize: '182 KB',
-      status: 'Success'
-    },
-    {
-      id: '3',
-      reportName: 'GST Report - December 2025',
-      reportType: 'GST Report',
-      format: 'CSV',
-      exportedBy: 'Finance Admin',
-      exportedAt: '2026-02-03 16:45:10',
-      timestamp: new Date('2026-02-03T16:45:10').toISOString(),
-      fileSize: '98 KB',
-      status: 'Success'
-    },
-    {
-      id: '4',
-      reportName: 'Invoice INV-2026-001',
-      reportType: 'Invoice PDF',
-      format: 'PDF',
-      exportedBy: 'Finance Admin',
-      exportedAt: '2026-02-01 09:22:33',
-      timestamp: new Date('2026-02-01T09:22:33').toISOString(),
-      fileSize: '156 KB',
-      status: 'Success'
-    },
-    {
-      id: '5',
-      reportName: 'Time Entries Report - January 2026',
-      reportType: 'Time Entries',
-      format: 'CSV',
-      exportedBy: 'Finance Admin',
-      exportedAt: '2026-01-31 11:50:18',
-      timestamp: new Date('2026-01-31T11:50:18').toISOString(),
-      fileSize: '312 KB',
-      status: 'Success'
-    }
-  ])
+  const [auditLogs, setAuditLogs] = useState([])
+  const [invoiceItems, setInvoiceItems] = useState([])
+  const [timeEntries, setTimeEntries] = useState([])
 
   const [billingConfig, setBillingConfig] = useState({
     format: 'Excel',
@@ -2635,29 +2307,19 @@ function ExportsSection() {
     groupBy: 'project'
   })
 
-  const addAuditLog = (reportName, reportType, format, fileSize) => {
-    const now = new Date()
-    const newLog = {
-      id: String(auditLogs.length + 1),
-      reportName,
-      reportType,
-      format,
-      exportedBy: 'Finance Admin',
-      exportedAt: now.toLocaleString('en-IN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }),
-      timestamp: now.toISOString(),
-      fileSize,
-      status: 'Success'
-    }
-    setAuditLogs(prev => [newLog, ...prev])
-  }
+  useEffect(() => {
+    Promise.all([
+      apiFetch('/finance/exports'),
+      apiFetch('/finance/invoices'),
+      apiFetch('/finance/approved-time-entries')
+    ])
+      .then(([exportsData, invoicesData, timeEntriesData]) => {
+        setAuditLogs(exportsData.map(normalizeExportJob))
+        setInvoiceItems(invoicesData.map(normalizeInvoice))
+        setTimeEntries(timeEntriesData)
+      })
+      .catch(error => console.error('Failed to load export data', error))
+  }, [])
 
   const buildCsv = (headers, rows) => {
     const lines = [headers.join(','), ...rows.map(row => row.join(','))]
@@ -2692,7 +2354,7 @@ function ExportsSection() {
     doc.save(filename)
   }
 
-  const exportReport = ({ title, headers, rows, format, fileBase, fileSize }) => {
+  const exportReport = async ({ title, headers, rows, format, fileBase, fileSize, rangeLabel }) => {
     const today = new Date().toISOString().split('T')[0]
     const extension = format.toLowerCase()
     const filename = `${fileBase}-${today}.${extension}`
@@ -2706,44 +2368,76 @@ function ExportsSection() {
           : 'text/csv'
       downloadFile(csvData, filename, mime)
     }
-    addAuditLog(`${title} - ${new Date().toLocaleDateString()}`, title, format, fileSize)
+    const savedExport = await apiFetch('/finance/exports', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `${title} - ${new Date().toLocaleDateString()}`,
+        range: rangeLabel,
+        format
+      })
+    })
+    const normalized = normalizeExportJob(savedExport)
+    normalized.fileSize = fileSize
+    setAuditLogs(prev => [normalized, ...prev])
   }
 
-  const handleExportBilling = () => {
+  const handleExportBilling = async () => {
     const headers = ['Invoice Number', 'Client Name', 'Project', 'Date', 'Amount', 'GST', 'Total', 'Status']
-    const rows = [
-      ['INV-2026-001', 'Acme Corporation', 'Website Redesign', '2026-01-15', '250000', '45000', '295000', 'Sent'],
-      ['INV-2026-002', 'TechStart Industries', 'Mobile App Development', '2026-01-20', '360000', '64800', '424800', 'Paid'],
-      ['INV-2026-003', 'Global Solutions Ltd', 'ERP System Implementation', '2026-02-01', '450000', '81000', '531000', 'Overdue']
-    ]
-    exportReport({
+    const rows = invoiceItems.map(invoice => [
+      invoice.invoiceNumber,
+      invoice.clientName,
+      invoice.groupBy,
+      invoice.invoiceDate,
+      String(invoice.subtotal),
+      String(invoice.cgst + invoice.sgst + invoice.igst),
+      String(invoice.total),
+      invoice.status
+    ])
+    await exportReport({
       title: 'Billing Report',
       headers,
       rows,
       format: billingConfig.format,
       fileBase: 'billing-report',
-      fileSize: '245 KB'
+      fileSize: '245 KB',
+      rangeLabel: `${billingConfig.dateFrom || 'Start'} - ${billingConfig.dateTo || 'Today'}`
     })
   }
 
-  const handleExportPayroll = () => {
+  const handleExportPayroll = async () => {
     const headers = ['Employee Name', 'Role', 'Hours Worked', 'Hourly Rate', 'Gross Pay', 'Deductions', 'Net Pay']
-    const rows = [
-      ['Rahul Sharma', 'Senior Developer', '160', '3000', '480000', '48000', '432000'],
-      ['Priya Patel', 'UI/UX Designer', '150', '2500', '375000', '37500', '337500'],
-      ['Amit Kumar', 'Project Manager', '170', '3500', '595000', '59500', '535500']
-    ]
-    exportReport({
+    const payrollSummary = Array.from(
+      timeEntries.reduce((map, entry) => {
+        const key = entry.employeeName
+        const current = map.get(key) || { employee: key, hours: 0, rate: Number(entry.rate || 0), amount: 0 }
+        current.hours += Number(entry.hours || 0)
+        current.amount += Number(entry.amount || 0)
+        current.rate = Number(entry.rate || current.rate || 0)
+        map.set(key, current)
+        return map
+      }, new Map()).values()
+    )
+    const rows = payrollSummary.map(item => [
+      item.employee,
+      '-',
+      String(item.hours),
+      String(item.rate),
+      String(item.amount),
+      String(Math.round(item.amount * 0.1)),
+      String(Math.round(item.amount * 0.9))
+    ])
+    await exportReport({
       title: 'Payroll Report',
       headers,
       rows,
       format: payrollConfig.format,
       fileBase: 'payroll-report',
-      fileSize: '180 KB'
+      fileSize: '180 KB',
+      rangeLabel: `${payrollConfig.dateFrom || 'Start'} - ${payrollConfig.dateTo || 'Today'}`
     })
   }
 
-  const handleExportGST = () => {
+  const handleExportGST = async () => {
     const headers = [
       'Invoice Number',
       'GSTIN',
@@ -2756,35 +2450,49 @@ function ExportsSection() {
       'Total Tax',
       'Invoice Total'
     ]
-    const rows = [
-      ['INV-2026-001', '29ABCDE1234F1Z5', 'Karnataka', 'Karnataka', '250000', '22500', '22500', '0', '45000', '295000'],
-      ['INV-2026-002', '27FGHIJ5678K2Y6', 'Maharashtra', 'Karnataka', '360000', '0', '0', '64800', '64800', '424800'],
-      ['INV-2026-003', '07KLMNO9012L3X7', 'Delhi', 'Karnataka', '450000', '0', '0', '81000', '81000', '531000']
-    ]
-    exportReport({
+    const rows = invoiceItems.map(invoice => [
+      invoice.invoiceNumber,
+      invoice.clientGSTIN,
+      invoice.clientState,
+      invoice.supplierState,
+      String(invoice.subtotal),
+      String(invoice.cgst),
+      String(invoice.sgst),
+      String(invoice.igst),
+      String(invoice.cgst + invoice.sgst + invoice.igst),
+      String(invoice.total)
+    ])
+    await exportReport({
       title: 'GST Report',
       headers,
       rows,
       format: gstConfig.format,
       fileBase: 'gst-report',
-      fileSize: '95 KB'
+      fileSize: '95 KB',
+      rangeLabel: `${gstConfig.dateFrom || 'Start'} - ${gstConfig.dateTo || 'Today'}`
     })
   }
 
-  const handleExportTimeEntries = () => {
+  const handleExportTimeEntries = async () => {
     const headers = ['Date', 'Employee', 'Project', 'Task', 'Hours', 'Billable', 'Rate', 'Amount']
-    const rows = [
-      ['2026-01-15', 'Rahul Sharma', 'Website Redesign', 'UI/UX Design', '8', 'Yes', '3000', '24000'],
-      ['2026-01-16', 'Rahul Sharma', 'Website Redesign', 'UI/UX Design', '8', 'Yes', '3000', '24000'],
-      ['2026-01-17', 'Priya Patel', 'Mobile App Development', 'iOS Development', '7', 'Yes', '2800', '19600']
-    ]
-    exportReport({
+    const rows = timeEntries.map(entry => [
+      entry.date,
+      entry.employeeName,
+      entry.projectName,
+      entry.taskName,
+      String(entry.hours),
+      entry.billable ? 'Yes' : 'No',
+      String(entry.rate),
+      String(entry.amount)
+    ])
+    await exportReport({
       title: 'Time Entries Report',
       headers,
       rows,
       format: timeEntriesConfig.format,
       fileBase: 'time-entries',
-      fileSize: '310 KB'
+      fileSize: '310 KB',
+      rangeLabel: `${timeEntriesConfig.dateFrom || 'Start'} - ${timeEntriesConfig.dateTo || 'Today'}`
     })
   }
 

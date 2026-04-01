@@ -8,6 +8,7 @@ const roleRoutes = {
   employee: '/dashboard/employee',
   finance: '/dashboard/finance',
   manager: '/dashboard/manager',
+  admin: '/dashboard/admin/overview',
   tenant: '/dashboard/tenant',
 };
 

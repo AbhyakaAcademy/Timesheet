@@ -33,15 +33,17 @@ export default function EmployeeDashboardPage() {
   const [me, setMe] = useState(null);
   const [projects, setProjects] = useState([]);
   const [timesheet, setTimesheet] = useState(null);
+  const [timesheetHistory, setTimesheetHistory] = useState([]);
   const [summary, setSummary] = useState(null);
   const [notifications, setNotifications] = useState([]);
 
   const loadData = useCallback(async () => {
     setErrorMessage("");
-    const [meRes, summaryRes, timesheetRes, projectsRes, notificationsRes] = await Promise.all([
+    const [meRes, summaryRes, timesheetRes, historyRes, projectsRes, notificationsRes] = await Promise.all([
       apiFetch("/me/"),
       apiFetch("/employee/dashboard-summary"),
       apiFetch("/timesheets/current"),
+      apiFetch("/timesheets"),
       apiFetch("/projects"),
       apiFetch("/notifications"),
     ]);
@@ -49,6 +51,7 @@ export default function EmployeeDashboardPage() {
     setMe(meRes);
     setSummary(summaryRes);
     setTimesheet(timesheetRes);
+    setTimesheetHistory(historyRes || []);
     setProjects(projectsRes || []);
     setNotifications(
       (notificationsRes || []).map((item) => ({
@@ -86,6 +89,12 @@ export default function EmployeeDashboardPage() {
       status: timesheet.status,
     }));
   }, [timesheet]);
+
+  const previousTimesheets = useMemo(() => {
+    const all = timesheetHistory || [];
+    if (!timesheet?.id) return all;
+    return all.filter((sheet) => sheet.id !== timesheet.id);
+  }, [timesheetHistory, timesheet]);
 
   const activityEntries = useMemo(() => {
     if (!timesheet) return [];
@@ -161,17 +170,23 @@ export default function EmployeeDashboardPage() {
         body: JSON.stringify({ note }),
       });
 
-      const hours = Math.max(Number(entry.duration_minutes || 0) / 60, 0.25);
-      await addTimesheetLine({
-        date: new Date(entry.end_time || new Date().toISOString()).toISOString().slice(0, 10),
-        project_id: entry.project.id,
-        description: entry.note || "Punch entry",
-        hours: Number(hours.toFixed(2)),
-        shift: "DAY",
-        time_entry_id: entry.id,
-      });
-
+      // Refresh immediately after successful punch-out so UI switches back to Punch In
+      // even if later timesheet-line creation fails.
       await refreshData();
+
+      try {
+        const hours = Math.max(Number(entry.duration_minutes || 0) / 60, 0.25);
+        await addTimesheetLine({
+          date: new Date(entry.end_time || new Date().toISOString()).toISOString().slice(0, 10),
+          project_id: entry.project.id,
+          description: entry.note || "Punch entry",
+          hours: Number(hours.toFixed(2)),
+          shift: "DAY",
+          time_entry_id: entry.id,
+        });
+      } finally {
+        await refreshData();
+      }
     } finally {
       setBusy(false);
     }
@@ -291,6 +306,7 @@ export default function EmployeeDashboardPage() {
           rows={rows}
           status={timesheet?.status || "DRAFT"}
           projects={projects}
+          historyTimesheets={previousTimesheets}
           onSubmit={handleSubmitTimesheet}
           onUpdateRow={handleUpdateTimesheetRow}
           onDeleteRow={handleDeleteTimesheetRow}

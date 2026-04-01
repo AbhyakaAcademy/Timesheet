@@ -4,7 +4,7 @@
 - Phase 1: backend setup, apps, DRF, JWT/token auth, CORS, `.env`, PostgreSQL, role-aware user
 - Phase 2: timesheet lifecycle APIs + notification APIs
 - Phase 3: manager review/approval APIs with audit trail
-- Phase 4: finance/admin minimal read APIs
+- Phase 4: finance/admin CRUD APIs for clients, projects, rates, expenses, invoices, approved time, and exports
 - Phase 5: frontend integration API contract in `API_CONTRACT.md`
 
 ## Tech stack
@@ -13,7 +13,7 @@
 - SimpleJWT
 - DRF Token auth
 - django-cors-headers
-- PostgreSQL
+- PostgreSQL only
 
 ## Apps
 - `accounts`
@@ -47,6 +47,7 @@ After `seed_demo_data`:
 - `manager1` / `Pass@12345`
 - `admin1` / `Pass@12345`
 - `finance1` / `Pass@12345`
+- `tenant1` / `Pass@12345`
 
 ## Base URL
 - `http://127.0.0.1:8000/api`
@@ -80,10 +81,26 @@ After `seed_demo_data`:
 - `POST /api/manager/timesheets/{id}/approve`
 - `POST /api/manager/timesheets/{id}/reject`
 
-### Finance/admin minimal
-- `GET /api/finance/clients`
-- `GET /api/finance/projects`
-- `GET /api/finance/invoices`
+### Finance/admin
+- `GET|POST /api/finance/clients`
+- `GET|PATCH|DELETE /api/finance/clients/{id}`
+- `GET|POST /api/finance/projects`
+- `GET|PATCH|DELETE /api/finance/projects/{id}`
+- `GET|POST /api/finance/rates/projects`
+- `PATCH|DELETE /api/finance/rates/projects/{id}`
+- `GET|POST /api/finance/rates/roles`
+- `PATCH|DELETE /api/finance/rates/roles/{id}`
+- `GET|POST /api/finance/rates/employees`
+- `PATCH|DELETE /api/finance/rates/employees/{id}`
+- `GET /api/finance/approved-time-entries`
+- `GET|POST /api/finance/expenses`
+- `PATCH|DELETE /api/finance/expenses/{id}`
+- `POST /api/finance/expenses/{id}/approve`
+- `POST /api/finance/expenses/{id}/reject`
+- `GET|POST /api/finance/invoices`
+- `GET|PATCH|DELETE /api/finance/invoices/{id}`
+- `GET|POST /api/finance/exports`
+- `GET /api/finance/exports/{id}/download`
 - `GET /api/admin/policies`
 - `GET /api/admin/overtime-rules`
 - `GET /api/admin/billing-rates`

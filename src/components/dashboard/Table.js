@@ -64,6 +64,7 @@ export default function Table({ onPendingCountChange }) {
       const normalize = (list, status) =>
         (list || []).map((item) => ({
           id: item.id,
+          code: `TS-${item.id}`,
           name: item.employee_name || item.employee_username || "Employee",
           email: item.employee_username || "-",
           weekEnding: displayDate(item.week_start),
@@ -185,6 +186,8 @@ export default function Table({ onPendingCountChange }) {
                   <h3 className="font-semibold text-gray-900">{row.name}</h3>
                   <span className="mx-1 text-sm text-gray-400">-</span>
                   <span className="text-sm text-gray-600">{row.email}</span>
+                  <span className="mx-1 text-sm text-gray-400">-</span>
+                  <span className="text-xs font-medium text-gray-500">{row.code}</span>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-gray-600">
