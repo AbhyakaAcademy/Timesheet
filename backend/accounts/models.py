@@ -7,6 +7,7 @@ class UserRole(models.TextChoices):
     MANAGER = "manager", "Manager"
     ADMIN = "admin", "Admin"
     FINANCE = "finance", "Finance"
+    TENANT = "tenant", "Tenant"
 
 
 class User(AbstractUser):

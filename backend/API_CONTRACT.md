@@ -207,10 +207,58 @@ Or send `{}` to mark all unread as read.
 }
 ```
 
-## 7) Finance/Admin mock-replacement APIs
+## 7) Finance/Admin APIs
+
+### Clients
 - `GET /api/finance/clients`
+- `POST /api/finance/clients`
+- `GET /api/finance/clients/{id}`
+- `PATCH /api/finance/clients/{id}`
+- `DELETE /api/finance/clients/{id}`
+
+### Projects
 - `GET /api/finance/projects`
+- `POST /api/finance/projects`
+- `GET /api/finance/projects/{id}`
+- `PATCH /api/finance/projects/{id}`
+- `DELETE /api/finance/projects/{id}`
+
+### Rates
+- `GET /api/finance/rates/projects`
+- `POST /api/finance/rates/projects`
+- `PATCH /api/finance/rates/projects/{id}`
+- `DELETE /api/finance/rates/projects/{id}`
+- `GET /api/finance/rates/roles`
+- `POST /api/finance/rates/roles`
+- `PATCH /api/finance/rates/roles/{id}`
+- `DELETE /api/finance/rates/roles/{id}`
+- `GET /api/finance/rates/employees`
+- `POST /api/finance/rates/employees`
+- `PATCH /api/finance/rates/employees/{id}`
+- `DELETE /api/finance/rates/employees/{id}`
+
+### Billing inputs
+- `GET /api/finance/approved-time-entries`
+- `GET /api/finance/expenses`
+- `POST /api/finance/expenses`
+- `PATCH /api/finance/expenses/{id}`
+- `DELETE /api/finance/expenses/{id}`
+- `POST /api/finance/expenses/{id}/approve`
+- `POST /api/finance/expenses/{id}/reject`
+
+### Invoices
 - `GET /api/finance/invoices`
+- `POST /api/finance/invoices`
+- `GET /api/finance/invoices/{id}`
+- `PATCH /api/finance/invoices/{id}`
+- `DELETE /api/finance/invoices/{id}`
+
+### Exports
+- `GET /api/finance/exports`
+- `POST /api/finance/exports`
+- `GET /api/finance/exports/{id}/download`
+
+### Admin policies
 - `GET /api/admin/policies`
 - `GET /api/admin/overtime-rules`
 - `GET /api/admin/billing-rates`

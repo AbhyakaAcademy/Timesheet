@@ -84,8 +84,7 @@ class Timesheet(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("employee", "week_start")
-        ordering = ("-week_start",)
+        ordering = ("-week_start", "-created_at")
 
     def submit(self):
         self.status = TimesheetStatus.SUBMITTED

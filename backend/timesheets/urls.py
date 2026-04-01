@@ -3,6 +3,7 @@ from django.urls import path
 from timesheets.views import (
     AddTimesheetLineView,
     ApproveTimesheetView,
+    EmployeeTimesheetListView,
     CurrentTimesheetView,
     EmployeeDashboardSummaryView,
     ManagerTimesheetDetailView,
@@ -22,6 +23,7 @@ urlpatterns = [
     path("time-entries/punch-in", PunchInView.as_view(), name="punch_in"),
     path("time-entries/<int:entry_id>/punch-out", PunchOutView.as_view(), name="punch_out"),
     path("time-entries/manual", ManualTimeEntryView.as_view(), name="manual_time_entry"),
+    path("timesheets", EmployeeTimesheetListView.as_view(), name="employee_timesheets"),
     path("timesheets/current", CurrentTimesheetView.as_view(), name="current_timesheet"),
     path("timesheets/<int:timesheet_id>/lines", AddTimesheetLineView.as_view(), name="add_timesheet_line"),
     path("timesheet-lines/<int:line_id>", TimesheetLineDetailView.as_view(), name="timesheet_line_detail"),

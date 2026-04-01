@@ -24,6 +24,12 @@ type TimesheetsTableProps = {
   rows: TimesheetRow[];
   status: string;
   projects: ProjectOption[];
+  historyTimesheets: {
+    id: number;
+    week_start: string;
+    status: string;
+    total_hours: number;
+  }[];
   onSubmit: () => Promise<void>;
   onUpdateRow: (id: number, payload: Partial<TimesheetRow>) => Promise<void>;
   onDeleteRow: (id: number) => Promise<void>;
@@ -34,6 +40,7 @@ export function TimesheetsTable({
   rows,
   status,
   projects,
+  historyTimesheets,
   onSubmit,
   onUpdateRow,
   onDeleteRow,
@@ -239,6 +246,42 @@ export function TimesheetsTable({
       </div>
 
       {errorMessage ? <p className="mt-3 text-xs text-rose-600">{errorMessage}</p> : null}
+
+      {historyTimesheets.length > 0 ? (
+        <div className="mt-8 border-t border-gray-200 pt-5">
+          <h3 className="text-sm font-semibold text-gray-800">Previous Timesheets</h3>
+          <div className="mt-3 rounded-2xl border border-gray-200 overflow-x-auto">
+            <div className="min-w-[860px]">
+              <div className="grid grid-cols-[180px_220px_120px_120px_220px_120px] bg-gray-50 text-xs font-semibold text-gray-600 px-4 py-3">
+                <span>Date</span>
+                <span>Project</span>
+                <span>Hours</span>
+                <span>Shift</span>
+                <span>Description</span>
+                <span>Status</span>
+              </div>
+
+              {historyTimesheets.map((sheet) => (
+                <div
+                  key={sheet.id}
+                  className="grid grid-cols-[180px_220px_120px_120px_220px_120px] px-4 py-3 text-sm text-gray-700 border-t border-gray-100"
+                >
+                  <span className="font-medium text-gray-900">{new Date(sheet.week_start).toLocaleDateString("en-US")}</span>
+                  <span>Timesheet TS-{sheet.id}</span>
+                  <span>{Number(sheet.total_hours || 0).toFixed(2)}h</span>
+                  <span>-</span>
+                  <span>Week submission</span>
+                  <span>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${sheet.status === "APPROVED" ? "bg-emerald-100 text-emerald-700" : sheet.status === "REJECTED" ? "bg-rose-100 text-rose-700" : sheet.status === "SUBMITTED" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-700"}`}>
+                      {sheet.status}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

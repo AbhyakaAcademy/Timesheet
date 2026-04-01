@@ -4,7 +4,7 @@ export const ROLE_DASHBOARD_MAP = {
   employee: "/dashboard/employee",
   manager: "/dashboard/manager",
   finance: "/dashboard/finance",
-  admin: "/dashboard",
+  admin: "/dashboard/admin/overview",
   tenant: "/dashboard/tenant",
 };
 

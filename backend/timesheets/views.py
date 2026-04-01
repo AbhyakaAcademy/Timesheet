@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.db import IntegrityError
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -151,12 +152,46 @@ class CurrentTimesheetView(APIView):
 
     def get(self, request):
         current_week_start = week_start_for(timezone.now())
-        timesheet, _ = Timesheet.objects.get_or_create(
+        week_timesheets = Timesheet.objects.filter(
             employee=request.user,
             week_start=current_week_start,
-            defaults={"status": TimesheetStatus.DRAFT},
-        )
+        ).order_by("-created_at")
+
+        timesheet = week_timesheets.filter(status=TimesheetStatus.DRAFT).first()
+        if timesheet is None:
+            timesheet = week_timesheets.first()
+
+        if timesheet is None:
+            try:
+                timesheet = Timesheet.objects.create(
+                    employee=request.user,
+                    week_start=current_week_start,
+                    status=TimesheetStatus.DRAFT,
+                )
+            except IntegrityError:
+                # Backward-compatible fallback when unique(employee, week_start)
+                # still exists in DB before migration is applied.
+                timesheet = (
+                    Timesheet.objects.filter(
+                        employee=request.user,
+                        week_start=current_week_start,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
         return Response(TimesheetSerializer(timesheet).data)
+
+
+class EmployeeTimesheetListView(APIView):
+    permission_classes = [IsAuthenticated, IsEmployee]
+
+    def get(self, request):
+        queryset = (
+            Timesheet.objects.filter(employee=request.user)
+            .prefetch_related("lines", "approvals")
+            .order_by("-week_start", "-created_at")
+        )
+        return Response(TimesheetSerializer(queryset, many=True).data)
 
 
 class TimesheetLineDetailView(APIView):
@@ -194,10 +229,35 @@ class AddTimesheetLineView(APIView):
     def post(self, request, timesheet_id):
         timesheet = get_object_or_404(Timesheet, id=timesheet_id, employee=request.user)
         if timesheet.status != TimesheetStatus.DRAFT:
-            return Response(
-                {"detail": "You can add lines only to DRAFT timesheets."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            try:
+                timesheet = Timesheet.objects.create(
+                    employee=request.user,
+                    week_start=timesheet.week_start,
+                    status=TimesheetStatus.DRAFT,
+                )
+            except IntegrityError:
+                # Backward-compatible fallback if unique(employee, week_start)
+                # is still active before migration.
+                existing_draft = (
+                    Timesheet.objects.filter(
+                        employee=request.user,
+                        week_start=timesheet.week_start,
+                        status=TimesheetStatus.DRAFT,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+                if existing_draft is None:
+                    return Response(
+                        {
+                            "detail": (
+                                "Cannot create a new DRAFT timesheet for this week. "
+                                "Run migrations to allow multiple timesheets per week."
+                            )
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                timesheet = existing_draft
 
         serializer = TimesheetLineCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -220,7 +280,21 @@ class SubmitTimesheetView(APIView):
     def post(self, request, timesheet_id):
         timesheet = get_object_or_404(Timesheet, id=timesheet_id, employee=request.user)
         if timesheet.status != TimesheetStatus.DRAFT:
-            return Response({"detail": "Only DRAFT timesheets can be submitted."}, status=status.HTTP_400_BAD_REQUEST)
+            fallback_draft = (
+                Timesheet.objects.filter(
+                    employee=request.user,
+                    week_start=timesheet.week_start,
+                    status=TimesheetStatus.DRAFT,
+                )
+                .order_by("-created_at")
+                .first()
+            )
+            if fallback_draft is None:
+                return Response(
+                    {"detail": "Only DRAFT timesheets can be submitted."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            timesheet = fallback_draft
         if not timesheet.lines.exists():
             return Response({"detail": "Add at least one timesheet line before submit."}, status=status.HTTP_400_BAD_REQUEST)
         timesheet.submit()
