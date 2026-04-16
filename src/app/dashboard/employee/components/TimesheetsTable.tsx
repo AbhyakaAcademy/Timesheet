@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, Clock3, Pencil, Save, Trash2 } from "lucide-react";
+import { CheckCircle2, Clock3, Pencil, Save } from "lucide-react";
 
 type ProjectOption = {
   id: number;
@@ -15,6 +15,7 @@ type TimesheetRow = {
   projectId: number;
   projectName: string;
   hours: number;
+  durationSeconds?: number;
   shift: string;
   description: string;
   status: string;
@@ -32,8 +33,68 @@ type TimesheetsTableProps = {
   }[];
   onSubmit: () => Promise<void>;
   onUpdateRow: (id: number, payload: Partial<TimesheetRow>) => Promise<void>;
-  onDeleteRow: (id: number) => Promise<void>;
   busy: boolean;
+};
+
+type DraftTimesheetRow = Partial<TimesheetRow> & {
+  durationInput?: string;
+};
+
+const formatTrackedTime = (secondsValue: number) => {
+  const totalSeconds = Math.max(Math.round(Number(secondsValue || 0)), 0);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours === 0 && minutes === 0) return `${seconds}s`;
+  if (hours === 0) return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  if (seconds === 0 && minutes === 0) return `${hours}h`;
+  if (seconds === 0) return `${hours}h ${minutes}m`;
+  if (minutes === 0) return `${hours}h ${seconds}s`;
+  return `${hours}h ${minutes}m`;
+};
+
+const formatDisplayDate = (dateValue: string) => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
+    const [year, month, day] = dateValue.split("-").map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  return new Date(dateValue).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const toDurationInputValue = (hoursValue: number) => {
+  const totalMinutes = Math.max(Math.round(Number(hoursValue || 0) * 60), 0);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
+
+const parseDurationInput = (value: string) => {
+  const normalized = value.trim();
+  const match = normalized.match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 24 || (hours === 24 && minutes > 0)) return null;
+
+  return Number((hours + minutes / 60).toFixed(2));
+};
+
+const formatDurationTypingValue = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
 };
 
 export function TimesheetsTable({
@@ -43,19 +104,24 @@ export function TimesheetsTable({
   historyTimesheets,
   onSubmit,
   onUpdateRow,
-  onDeleteRow,
   busy,
 }: TimesheetsTableProps) {
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
-  const [draftRow, setDraftRow] = useState<Partial<TimesheetRow>>({});
+  const [draftRow, setDraftRow] = useState<DraftTimesheetRow>({});
   const [errorMessage, setErrorMessage] = useState("");
 
   const isDraft = status === "DRAFT";
-  const totalHours = useMemo(() => rows.reduce((sum, row) => sum + Number(row.hours || 0), 0), [rows]);
+  const totalSeconds = useMemo(
+    () => rows.reduce((sum, row) => sum + Number(row.durationSeconds || Math.round(Number(row.hours || 0) * 3600)), 0),
+    [rows]
+  );
 
   const startEditingRow = (row: TimesheetRow) => {
     setEditingRowId(row.id);
-    setDraftRow(row);
+    setDraftRow({
+      ...row,
+      durationInput: toDurationInputValue(row.hours),
+    });
   };
 
   const stopEditingRow = () => {
@@ -67,7 +133,17 @@ export function TimesheetsTable({
     if (!editingRowId) return;
     setErrorMessage("");
     try {
-      await onUpdateRow(editingRowId, draftRow);
+      const nextPayload = { ...draftRow };
+      if (typeof draftRow.durationInput === "string") {
+        const parsedHours = parseDurationInput(draftRow.durationInput);
+        if (parsedHours === null) {
+          setErrorMessage("Enter time in HH:MM format, for example 02:30.");
+          return;
+        }
+        nextPayload.hours = parsedHours;
+      }
+      delete nextPayload.durationInput;
+      await onUpdateRow(editingRowId, nextPayload);
       stopEditingRow();
     } catch (error: any) {
       setErrorMessage(error.message || "Unable to update line.");
@@ -80,15 +156,6 @@ export function TimesheetsTable({
       await onSubmit();
     } catch (error: any) {
       setErrorMessage(error.message || "Unable to submit timesheet.");
-    }
-  };
-
-  const deleteRow = async (id: number) => {
-    setErrorMessage("");
-    try {
-      await onDeleteRow(id);
-    } catch (error: any) {
-      setErrorMessage(error.message || "Unable to delete line.");
     }
   };
 
@@ -154,16 +221,20 @@ export function TimesheetsTable({
                 <span>
                   {isRowEditing ? (
                     <input
-                      type="number"
-                      min="0.25"
-                      max="24"
-                      step="0.25"
-                      value={Number(draftRow.hours ?? row.hours)}
-                      onChange={(event) => setDraftRow((prev) => ({ ...prev, hours: Number(event.target.value) }))}
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="HH:MM"
+                      value={String(draftRow.durationInput ?? toDurationInputValue(row.hours))}
+                      onChange={(event) =>
+                        setDraftRow((prev) => ({
+                          ...prev,
+                          durationInput: formatDurationTypingValue(event.target.value),
+                        }))
+                      }
                       className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
                     />
                   ) : (
-                    `${Number(row.hours).toFixed(2)}h`
+                    formatTrackedTime(Number(row.durationSeconds || Math.round(Number(row.hours || 0) * 3600)))
                   )}
                 </span>
                 <span>
@@ -220,15 +291,6 @@ export function TimesheetsTable({
                       <Pencil className="h-4 w-4" />
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => deleteRow(row.id)}
-                    disabled={!isDraft || busy}
-                    className="rounded-full p-1 text-rose-600 hover:bg-rose-50 disabled:opacity-60"
-                    aria-label="Delete row"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
                 </span>
               </div>
             );
@@ -242,7 +304,7 @@ export function TimesheetsTable({
 
       <div className="mt-4 flex items-center justify-between text-sm text-gray-700">
         <span>Total hours</span>
-        <span className="font-semibold">{totalHours.toFixed(2)}h</span>
+        <span className="font-semibold">{formatTrackedTime(totalSeconds)}</span>
       </div>
 
       {errorMessage ? <p className="mt-3 text-xs text-rose-600">{errorMessage}</p> : null}
@@ -266,9 +328,9 @@ export function TimesheetsTable({
                   key={sheet.id}
                   className="grid grid-cols-[180px_220px_120px_120px_220px_120px] px-4 py-3 text-sm text-gray-700 border-t border-gray-100"
                 >
-                  <span className="font-medium text-gray-900">{new Date(sheet.week_start).toLocaleDateString("en-US")}</span>
+                  <span className="font-medium text-gray-900">{formatDisplayDate(sheet.week_start)}</span>
                   <span>Timesheet TS-{sheet.id}</span>
-                  <span>{Number(sheet.total_hours || 0).toFixed(2)}h</span>
+                  <span>{formatTrackedTime(Math.round(Number(sheet.total_hours || 0) * 3600))}</span>
                   <span>-</span>
                   <span>Week submission</span>
                   <span>

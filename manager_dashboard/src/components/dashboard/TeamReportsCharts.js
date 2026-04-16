@@ -68,9 +68,6 @@ export default function TeamReportsCharts({
         <section className="rounded-xl border border-gray-200 bg-white p-5">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-gray-900">Employee Utilization</h2>
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-              Animated
-            </span>
           </div>
 
           <div className="mt-4 h-80 w-full">
@@ -109,9 +106,6 @@ export default function TeamReportsCharts({
         <section className="rounded-xl border border-gray-200 bg-white p-5">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg font-semibold text-gray-900">Timesheet Status Distribution</h2>
-            <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
-              Interactive
-            </span>
           </div>
 
           <div className="mt-4 grid items-center gap-3 lg:grid-cols-[1fr_auto]">

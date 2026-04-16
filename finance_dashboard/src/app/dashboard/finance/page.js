@@ -1606,7 +1606,7 @@ function InvoicesSection() {
               </div>
               <button
                 type="button"
-                className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
                 onClick={() => {
                   setIsCreateOpen(false)
                   resetCreateForm()
@@ -1996,7 +1996,7 @@ function InvoicesSection() {
                   <SendIcon /> Send Invoice
                 </button>
                 <button
-                  className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
                   onClick={() => setIsDetailOpen(false)}
                 >
                   <CloseIcon />
@@ -2200,7 +2200,7 @@ function InvoicesSection() {
               </div>
               <button
                 type="button"
-                className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
                 onClick={() => setIsLineItemOpen(false)}
               >
                 <CloseIcon />
@@ -2268,6 +2268,7 @@ function ExportsSection() {
   const [auditLogs, setAuditLogs] = useState([])
   const [invoiceItems, setInvoiceItems] = useState([])
   const [timeEntries, setTimeEntries] = useState([])
+  const [exportError, setExportError] = useState('')
 
   const [billingConfig, setBillingConfig] = useState({
     format: 'Excel',
@@ -2369,9 +2370,39 @@ function ExportsSection() {
     setAuditLogs(prev => [normalized, ...prev])
   }
 
+  const validateExportConfig = (config, label) => {
+    if (!config.dateFrom || !config.dateTo) {
+      setExportError(`Please enter From Date and To Date before generating the ${label}.`)
+      return false
+    }
+
+    if (config.dateTo < config.dateFrom) {
+      setExportError(`To Date cannot be earlier than From Date for the ${label}.`)
+      return false
+    }
+
+    setExportError('')
+    return true
+  }
+
+  const filterInvoicesByDate = config =>
+    invoiceItems.filter(invoice => {
+      if (!invoice.invoiceDate) return false
+      return invoice.invoiceDate >= config.dateFrom && invoice.invoiceDate <= config.dateTo
+    })
+
+  const filterTimeEntriesByDate = config =>
+    timeEntries.filter(entry => entry.date >= config.dateFrom && entry.date <= config.dateTo)
+
   const handleExportBilling = async () => {
+    if (!validateExportConfig(billingConfig, 'Billing Report')) return
+    const filteredInvoices = filterInvoicesByDate(billingConfig)
+    if (filteredInvoices.length === 0) {
+      setExportError('No billing data found for the selected date range.')
+      return
+    }
     const headers = ['Invoice Number', 'Client Name', 'Project', 'Date', 'Amount', 'GST', 'Total', 'Status']
-    const rows = invoiceItems.map(invoice => [
+    const rows = filteredInvoices.map(invoice => [
       invoice.invoiceNumber,
       invoice.clientName,
       invoice.groupBy,
@@ -2393,9 +2424,15 @@ function ExportsSection() {
   }
 
   const handleExportPayroll = async () => {
+    if (!validateExportConfig(payrollConfig, 'Payroll Report')) return
+    const filteredEntries = filterTimeEntriesByDate(payrollConfig)
+    if (filteredEntries.length === 0) {
+      setExportError('No payroll data found for the selected date range.')
+      return
+    }
     const headers = ['Employee Name', 'Role', 'Hours Worked', 'Hourly Rate', 'Gross Pay', 'Deductions', 'Net Pay']
     const payrollSummary = Array.from(
-      timeEntries.reduce((map, entry) => {
+      filteredEntries.reduce((map, entry) => {
         const key = entry.employeeName
         const current = map.get(key) || { employee: key, hours: 0, rate: Number(entry.rate || 0), amount: 0 }
         current.hours += Number(entry.hours || 0)
@@ -2426,6 +2463,12 @@ function ExportsSection() {
   }
 
   const handleExportGST = async () => {
+    if (!validateExportConfig(gstConfig, 'GST Report')) return
+    const filteredInvoices = filterInvoicesByDate(gstConfig)
+    if (filteredInvoices.length === 0) {
+      setExportError('No GST data found for the selected date range.')
+      return
+    }
     const headers = [
       'Invoice Number',
       'GSTIN',
@@ -2438,7 +2481,7 @@ function ExportsSection() {
       'Total Tax',
       'Invoice Total'
     ]
-    const rows = invoiceItems.map(invoice => [
+    const rows = filteredInvoices.map(invoice => [
       invoice.invoiceNumber,
       invoice.clientGSTIN,
       invoice.clientState,
@@ -2462,8 +2505,14 @@ function ExportsSection() {
   }
 
   const handleExportTimeEntries = async () => {
+    if (!validateExportConfig(timeEntriesConfig, 'Time Entries Report')) return
+    const filteredEntries = filterTimeEntriesByDate(timeEntriesConfig)
+    if (filteredEntries.length === 0) {
+      setExportError('No time entries found for the selected date range.')
+      return
+    }
     const headers = ['Date', 'Employee', 'Project', 'Task', 'Hours', 'Billable', 'Rate', 'Amount']
-    const rows = timeEntries.map(entry => [
+    const rows = filteredEntries.map(entry => [
       entry.date,
       entry.employeeName,
       entry.projectName,
@@ -2494,7 +2543,10 @@ function ExportsSection() {
     >
       <SegmentTabs
         activeTab={exportTab}
-        onSelect={setExportTab}
+        onSelect={tab => {
+          setExportTab(tab)
+          setExportError('')
+        }}
         tabs={[
           { id: 'billing', label: 'Billing Report' },
           { id: 'payroll', label: 'Payroll Report' },
@@ -2502,6 +2554,12 @@ function ExportsSection() {
           { id: 'time', label: 'Time Entries' }
         ]}
       />
+
+      {exportError ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+          {exportError}
+        </div>
+      ) : null}
 
       {exportTab === 'billing' ? (
         <Card className="p-6">
@@ -3062,7 +3120,7 @@ function ClientModal({ isEditing, values, onChange, onClose, onSubmit }) {
           </div>
           <button
             type="button"
-            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
             onClick={onClose}
           >
             <CloseIcon />
@@ -3171,7 +3229,7 @@ function ProjectModal({
           </div>
           <button
             type="button"
-            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
             onClick={onClose}
           >
             <CloseIcon />
@@ -3329,7 +3387,7 @@ function RateModal({
           </div>
           <button
             type="button"
-            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
             onClick={onClose}
           >
             <CloseIcon />

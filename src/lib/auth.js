@@ -5,7 +5,7 @@ export const ROLE_DASHBOARD_MAP = {
   manager: "/dashboard/manager",
   finance: "/dashboard/finance",
   admin: "/dashboard/admin/overview",
-  tenant: "/dashboard/tenant",
+  tenant: "/dashboard",
 };
 
 export function getApiBaseUrl() {
@@ -13,13 +13,20 @@ export function getApiBaseUrl() {
 }
 
 export async function loginWithCredentials({ username, password }) {
-  const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ username, password }),
-  });
+  let response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    throw new Error(
+      `Cannot reach the backend at ${getApiBaseUrl()}. Start the Django server and verify NEXT_PUBLIC_API_BASE_URL if needed.`
+    );
+  }
 
   let data = {};
   try {
@@ -61,6 +68,14 @@ export function clearSession() {
 }
 
 export function getSession() {
+  if (typeof window === "undefined") {
+    return {
+      token: "",
+      role: "",
+      userName: "",
+    };
+  }
+
   return {
     token: localStorage.getItem("accessToken"),
     role: localStorage.getItem("userRole"),

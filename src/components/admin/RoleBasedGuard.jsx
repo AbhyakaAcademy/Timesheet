@@ -1,31 +1,32 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-
-const roleRoutes = {
-  owner: '/dashboard',
-  employee: '/dashboard/employee',
-  finance: '/dashboard/finance',
-  manager: '/dashboard/manager',
-  admin: '/dashboard/admin/overview',
-  tenant: '/dashboard/tenant',
-};
 
 export function RoleBasedGuard({ allowedRoles, children }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [authorized, setAuthorized] = useState(false);
+  const userRole = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('userRole') || 'owner';
+  }, []);
+  const authorized = allowedRoles.includes(userRole);
 
   useEffect(() => {
-    const userRole = localStorage.getItem('userRole') || 'owner';
     if (!allowedRoles.includes(userRole)) {
-      router.replace(roleRoutes[userRole] || '/dashboard');
+      router.replace(
+        {
+          owner: '/dashboard',
+          employee: '/dashboard/employee',
+          finance: '/dashboard/finance',
+          manager: '/dashboard/manager',
+          admin: '/dashboard/admin/overview',
+          tenant: '/dashboard/tenant',
+        }[userRole] || '/dashboard'
+      );
       return;
     }
-
-    setAuthorized(true);
-  }, [allowedRoles, pathname, router]);
+  }, [allowedRoles, pathname, router, userRole]);
 
   if (!authorized) return null;
 

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Clock3, Eye, EyeOff, Loader2, Shield, Circle } from "lucide-react";
-import { getRoleHome, getSession, loginWithCredentials, persistSession } from "@/lib/auth";
+import { getRoleHome, loginWithCredentials, persistSession, ROLE_DASHBOARD_MAP } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,10 +18,9 @@ export default function LoginPage() {
   const showInfo = (msg) => window.alert(msg);
 
   useEffect(() => {
-    const { token, role } = getSession();
-    if (token && role) {
-      router.replace(getRoleHome(role));
-    }
+    Object.values(ROLE_DASHBOARD_MAP).forEach((path) => {
+      router.prefetch(path);
+    });
   }, [router]);
 
   const handleSubmit = async (e) => {
@@ -33,7 +32,9 @@ export default function LoginPage() {
     try {
       const payload = await loginWithCredentials({ username, password });
       persistSession(payload);
-      router.replace(getRoleHome(payload.user.role));
+      const target = getRoleHome(payload.user.role);
+      router.prefetch(target);
+      router.replace(target);
     } catch (error) {
       setErrorMessage(error.message || "Login failed.");
     } finally {
@@ -148,7 +149,7 @@ export default function LoginPage() {
                 type="text"
                 value={username}
                 className="w-full border border-gray-300 rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                placeholder="employee1"
+                placeholder="Enter your username"
                 onChange={(e) => setUsername(e.target.value)}
               />
             </div>

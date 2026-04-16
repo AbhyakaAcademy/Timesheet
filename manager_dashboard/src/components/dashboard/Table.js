@@ -253,6 +253,7 @@ export default function Table() {
   };
 
   const selectedEntries = selectedTimesheet ? timeEntriesBySheet[selectedTimesheet.id] ?? [] : [];
+  const canReviewAction = selectedTimesheet?.status === "Pending";
 
   return (
     <div className="space-y-5">
@@ -319,7 +320,7 @@ export default function Table() {
                 onClick={() => setSelectedTimesheet(row)}
                 className="text-sm font-medium text-blue-600 transition hover:text-blue-700"
               >
-                Review & Approve
+                Review
               </button>
             </div>
           </article>
@@ -439,20 +440,24 @@ export default function Table() {
                 >
                   Close
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedTimesheet(null)}
-                  className="rounded-xl bg-red-600 px-6 py-2 text-base font-semibold text-white transition hover:bg-red-700"
-                >
-                  Reject
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedTimesheet(null)}
-                  className="rounded-xl bg-green-600 px-6 py-2 text-base font-semibold text-white transition hover:bg-green-700"
-                >
-                  Approve
-                </button>
+                {canReviewAction ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTimesheet(null)}
+                      className="rounded-xl bg-red-600 px-6 py-2 text-base font-semibold text-white transition hover:bg-red-700"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTimesheet(null)}
+                      className="rounded-xl bg-green-600 px-6 py-2 text-base font-semibold text-white transition hover:bg-green-700"
+                    >
+                      Approve
+                    </button>
+                  </>
+                ) : null}
               </footer>
             </section>
           </div>

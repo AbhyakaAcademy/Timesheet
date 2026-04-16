@@ -7,6 +7,7 @@ from timesheets.views import (
     CurrentTimesheetView,
     EmployeeDashboardSummaryView,
     ManagerTimesheetDetailView,
+    ManagerTimesheetLineDetailView,
     ManagerTimesheetListView,
     ManualTimeEntryView,
     ProjectListView,
@@ -30,6 +31,7 @@ urlpatterns = [
     path("timesheets/<int:timesheet_id>/submit", SubmitTimesheetView.as_view(), name="submit_timesheet"),
     path("manager/timesheets", ManagerTimesheetListView.as_view(), name="manager_timesheets"),
     path("manager/timesheets/<int:timesheet_id>", ManagerTimesheetDetailView.as_view(), name="manager_timesheet_detail"),
+    path("manager/timesheet-lines/<int:line_id>", ManagerTimesheetLineDetailView.as_view(), name="manager_timesheet_line_detail"),
     path("manager/timesheets/<int:timesheet_id>/approve", ApproveTimesheetView.as_view(), name="approve_timesheet"),
     path("manager/timesheets/<int:timesheet_id>/reject", RejectTimesheetView.as_view(), name="reject_timesheet"),
 ]

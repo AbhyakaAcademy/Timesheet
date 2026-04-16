@@ -1,789 +1,1317 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { jsPDF } from "jspdf";
-import { ChevronDown, Clock, Download, LogOut, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import autoTable from "jspdf-autotable";
+import {
+  Bell,
+  Building2,
+  Clock,
+  CreditCard,
+  Download,
+  LogOut,
+  Plus,
+  RefreshCcw,
+  Save,
+  Settings,
+  Shield,
+  Users,
+  X,
+} from "lucide-react";
 import RouteGuard from "@/components/auth/RouteGuard";
+import HelpButton from "@/components/support/HelpButton";
 import { clearSession } from "@/lib/auth";
+import { formatCurrency, tenantApi } from "@/lib/adminTenantApi";
+import { getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
 
-const navItems = ["Dashboard", "Users", "Departments", "Policies", "Billing & Subscription", "Audit Logs", "Settings"];
+const navItems = [
+  "Dashboard",
+  "Users",
+  "Departments",
+  "Policies",
+  "Billing & Subscription",
+  "Audit Logs",
+  "Settings",
+];
+
 const settingsTabs = ["General Settings", "Billing Rates", "Overtime Rules", "Branding"];
-
-const initialUsers = [
-  ["Sarah Johnson", "sarah.johnson@company.com", "Admin", "Active", "Engineering"],
-  ["Michael Chen", "michael.chen@company.com", "Manager", "Active", "Sales"],
-  ["Emily Davis", "emily.davis@company.com", "Employee", "Active", "Marketing"]
-];
-
-const initialDepartmentCards = [
-  { name: "Engineering", head: "Sarah Johnson", employees: "24 members", status: "Active", created: "Created Jan 2024" },
-  { name: "Sales", head: "Michael Chen", employees: "18 members", status: "Pending", created: "Created Feb 2024" },
-  { name: "Marketing", head: "Emily Davis", employees: "12 members", status: "Inactive", created: "Created Mar 2024" }
-];
-
-const initialAuditLogs = [
-  {
-    timestamp: "Feb 5, 2026 10:42 AM",
-    user: "Sarah Johnson",
-    email: "sarah.johnson@company.com",
-    action: "Created user account",
-    resource: "john.doe@company.com",
-    details: "New user John Doe was added to the Engineering department with Employee role."
-  },
-  {
-    timestamp: "Feb 5, 2026 10:27 AM",
-    user: "Michael Chen",
-    email: "michael.chen@company.com",
-    action: "Updated policy",
-    resource: "Working Hours Policy",
-    details: "Updated default shift timings and break policy for all departments."
-  }
-];
+const defaultUserForm = { id: null, name: "", email: "", role: "Employee", department: "General", status: "Active" };
+const defaultDepartmentForm = { id: null, name: "", head: "", status: "Active" };
+const defaultPolicyForm = { id: null, title: "", description: "", appliesTo: "All users" };
+const defaultBillingRateForm = { id: null, role: "", project: "All Projects", rate: "2500", type: "Hourly" };
+const defaultOvertimeRuleForm = { id: null, title: "", threshold: "After 40 hours", multiplier: "1.5x", appliesTo: "All Employees" };
+const defaultSubscriptionForm = { currentPlan: "Enterprise", billingCycle: "Annual", licenses: 0 };
+const defaultGeneralSettingsForm = { tenantName: "", timeZone: "", currency: "", weekStart: "", payPeriod: "", maxHours: "" };
+const defaultBrandingForm = { logoText: "", primary: "", secondary: "", footerNotes: "" };
 
 export default function DashboardPage() {
   const router = useRouter();
   const [active, setActive] = useState("Dashboard");
-  const [tab, setTab] = useState("General Settings");
+  const [settingsTab, setSettingsTab] = useState("General Settings");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [allNotifications, setAllNotifications] = useState(() => getClientNotifications());
+  const [dialog, setDialog] = useState(null);
+  const [userForm, setUserForm] = useState(defaultUserForm);
+  const [departmentForm, setDepartmentForm] = useState(defaultDepartmentForm);
+  const [policyForm, setPolicyForm] = useState(defaultPolicyForm);
+  const [billingRateForm, setBillingRateForm] = useState(defaultBillingRateForm);
+  const [overtimeRuleForm, setOvertimeRuleForm] = useState(defaultOvertimeRuleForm);
+  const [subscriptionForm, setSubscriptionForm] = useState(defaultSubscriptionForm);
+  const [generalSettingsForm, setGeneralSettingsForm] = useState(defaultGeneralSettingsForm);
+  const [brandingForm, setBrandingForm] = useState(defaultBrandingForm);
 
-  const [showUserModal, setShowUserModal] = useState(false);
-  const [showDepartmentModal, setShowDepartmentModal] = useState(false);
-  const [showPolicyModal, setShowPolicyModal] = useState(false);
-  const [showRateModal, setShowRateModal] = useState(false);
-  const [showOvertimeModal, setShowOvertimeModal] = useState(false);
-  const [editingDepartmentIndex, setEditingDepartmentIndex] = useState(null);
-  const [editingRateIndex, setEditingRateIndex] = useState(null);
-  const [editingOvertimeIndex, setEditingOvertimeIndex] = useState(null);
-  const [showPlanModal, setShowPlanModal] = useState(false);
-  const [planModalMode, setPlanModalMode] = useState("upgrade");
-  const [selectedPolicy, setSelectedPolicy] = useState(null);
-  const [selectedAuditLog, setSelectedAuditLog] = useState(null);
-  const [showAdminDetails, setShowAdminDetails] = useState(false);
-  const [adminProfile, setAdminProfile] = useState({
-    name: "Admin User",
-    role: "Tenant Admin",
-    email: "admin@acme-corp.com",
-    phone: "+91 98765 43210"
-  });
-  const [adminDraft, setAdminDraft] = useState({
-    name: "Admin User",
-    role: "Tenant Admin",
-    email: "admin@acme-corp.com",
-    phone: "+91 98765 43210"
-  });
+  const [overview, setOverview] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [policies, setPolicies] = useState([]);
+  const [billingRates, setBillingRates] = useState([]);
+  const [overtimeRules, setOvertimeRules] = useState([]);
+  const [subscription, setSubscription] = useState(null);
+  const [tenantSettings, setTenantSettings] = useState(null);
+  const [adminProfile, setAdminProfile] = useState(null);
+  const [auditLogs, setAuditLogs] = useState([]);
 
-  const [userForm, setUserForm] = useState({ name: "", email: "", role: "Employee", status: "Active", department: "General" });
-  const [departmentForm, setDepartmentForm] = useState({ name: "", head: "", members: "", status: "Active" });
-  const [policyForm, setPolicyForm] = useState({ name: "", description: "", appliesTo: "All users" });
-  const [rateForm, setRateForm] = useState({ role: "", project: "All Projects", rate: "", type: "Hourly" });
-  const [overtimeForm, setOvertimeForm] = useState({ title: "", threshold: "", multiplier: "", appliesTo: "All Employees" });
+  const tenantName = tenantSettings?.organization?.tenantName || overview?.organization || "Tenant";
+  const unreadNotifications = useMemo(
+    () => allNotifications.filter((item) => item.clientName === tenantName && !item.read).length,
+    [allNotifications, tenantName]
+  );
 
-  const [usersRows, setUsersRows] = useState(initialUsers);
-  const [departmentCards, setDepartmentCards] = useState(initialDepartmentCards);
-  const [policies, setPolicies] = useState([
-    {
-      title: "Working Hours Policy",
-      desc: "Defines standard working hours, break times, and flexible work arrangements",
-      applies: "All departments",
-      lastUpdated: "Jan 15, 2026",
-      enabled: true,
-      details: [
-        "Standard shift 9:30 AM to 6:30 PM",
-        "45-minute lunch break",
-        "Flexible check-in up to 10:00 AM"
-      ]
-    },
-    {
-      title: "Approval Workflow Rules",
-      desc: "Timesheet and leave approval flow with escalation",
-      applies: "Managers & above",
-      lastUpdated: "Jan 10, 2026",
-      enabled: true,
-      details: [
-        "Timesheet approvals require manager sign-off",
-        "Leave above 5 days needs department head approval"
-      ]
+  useEffect(() => {
+    const unsubscribe = subscribeToClientNotifications(setAllNotifications);
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = window.setTimeout(() => setToast(""), 1800);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, []);
+
+  async function loadDashboard(showRefreshState = false) {
+    if (showRefreshState) setRefreshing(true);
+    else setLoading(true);
+    setError("");
+
+    try {
+      const [
+        overviewData,
+        usersData,
+        departmentsData,
+        policiesData,
+        billingRatesData,
+        overtimeRulesData,
+        subscriptionData,
+        settingsData,
+        auditLogsData,
+      ] = await Promise.all([
+        tenantApi.overview(),
+        tenantApi.users(),
+        tenantApi.departments(),
+        tenantApi.policies(),
+        tenantApi.billingRates(),
+        tenantApi.overtimeRules(),
+        tenantApi.subscription(),
+        tenantApi.settings(),
+        tenantApi.auditLogs(),
+      ]);
+
+      setOverview(overviewData);
+      setUsers(usersData);
+      setDepartments(departmentsData);
+      setPolicies(policiesData);
+      setBillingRates(billingRatesData);
+      setOvertimeRules(overtimeRulesData);
+      setSubscription(subscriptionData);
+      setTenantSettings(settingsData);
+      setAdminProfile(settingsData.adminProfile || overviewData.adminProfile || null);
+      setAuditLogs(auditLogsData);
+    } catch (err) {
+      setError(err.message || "Failed to load tenant dashboard.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  ]);
-  const [billingRates, setBillingRates] = useState([
-    ["Software Engineer", "All Projects", "\u20B92,500/hour", "Hourly"],
-    ["Project Manager", "All Projects", "\u20B94,000/hour", "Hourly"]
-  ]);
-  const [overtimeRules, setOvertimeRules] = useState([
-    { title: "Standard Overtime", threshold: "After 40 hours", multiplier: "1.5x", appliesTo: "Hourly Staff", active: true },
-    { title: "Double Overtime", threshold: "After 60 hours", multiplier: "2.0x", appliesTo: "Hourly Staff", active: false }
-  ]);
+  }
 
-  const [general, setGeneral] = useState({
-    tenantName: "Acme Corporation",
-    timeZone: "India Standard Time (IST) - UTC+5:30",
-    currency: "Indian Rupee (\u20B9)",
-    weekStart: "Monday",
-    payPeriod: "Monthly",
-    rounding: "15 minutes",
-    maxHours: "12 hours",
-    dateFormat: "DD-MM-YYYY (Indian format)",
-    timeFormat: "24-hour (13:00)"
-  });
+  function notify(message) {
+    setToast(message);
+  }
 
-  const [branding, setBranding] = useState({
-    logoText: "AC",
-    primary: "#4F46E5",
-    secondary: "#9333EA",
-    footerNotes: "Thank you for your business! Payment terms: Net 30 days."
-  });
-  const [planState, setPlanState] = useState({
-    currentPlan: "Enterprise",
-    billingCycle: "Annual",
-    licenses: 500
-  });
+  function toggleNotifications() {
+    const nextValue = !showNotifications;
+    setShowNotifications(nextValue);
+    if (nextValue && unreadNotifications > 0) {
+      markClientNotificationsRead(tenantName);
+      setAllNotifications(getClientNotifications());
+    }
+  }
 
-  const planRates = {
-    Starter: { Monthly: 149, Annual: 119 },
-    Professional: { Monthly: 599, Annual: 499 },
-    Enterprise: { Monthly: 749, Annual: 649 }
-  };
-
-  const planUnitPrice = planRates[planState.currentPlan]?.[planState.billingCycle] ?? 0;
-  const planTotalAmount = planUnitPrice * Math.max(planState.licenses, 0);
-  const planAmountLabel = `\u20B9${planTotalAmount.toLocaleString("en-IN")}`;
-
-  const notify = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 1600);
-  };
-
-  const downloadPdf = () => {
-    const doc = new jsPDF();
-    doc.text("Abhyaka Invoice", 20, 20);
-    doc.text("INV-2026-02", 20, 35);
-    doc.text(`Amount: ${planAmountLabel}`, 20, 45);
-    doc.save("INV-2026-02.pdf");
-    notify("Invoice downloaded");
-  };
-
-  const handleLogout = () => {
+  function handleLogout() {
     clearSession();
     router.push("/login");
-  };
+  }
 
-  const statusStyle = (status) => {
-    if (status === "Active") return "border-emerald-500 text-emerald-600 bg-emerald-50";
-    if (status === "Pending") return "border-amber-500 text-amber-700 bg-amber-50";
-    return "border-gray-400 text-gray-600 bg-gray-100";
-  };
+  function closeDialog() {
+    setDialog(null);
+  }
 
-  const totalUsers = usersRows.length;
-  const activeUsers = usersRows.filter((u) => u[3] === "Active").length;
-  const activeDepartments = departmentCards.filter((d) => d.status === "Active").length;
-  const pendingDepartments = departmentCards.filter((d) => d.status === "Pending").length;
-  const usagePercent = totalUsers ? Math.round((activeUsers / totalUsers) * 100) : 0;
-  const monthlyAddedUsers = Math.max(0, totalUsers - 144);
+  function openUserDialog(user = null) {
+    setUserForm(
+      user
+        ? {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            department: user.department,
+            status: user.status,
+          }
+        : { ...defaultUserForm, department: departments[0]?.name || "General" }
+    );
+    setDialog("user");
+  }
 
-  const recentActivity = [
-    { id: "S", text: <><span className="font-semibold">Sarah Johnson</span> created new user account for john.doe@company.com</>, time: "2 minutes ago" },
-    { id: "M", text: <><span className="font-semibold">Michael Chen</span> updated Engineering Department working hours policy</>, time: "15 minutes ago" },
-    { id: "E", text: <><span className="font-semibold">Emily Davis</span> approved 5 pending timesheet entries</>, time: "1 hour ago" },
-    { id: "S", text: <><span className="font-semibold">System</span> generated monthly invoice for February 2026</>, time: "2 hours ago" },
-    { id: "R", text: <><span className="font-semibold">Robert Wilson</span> deactivated user account maria.garcia@company.com</>, time: "3 hours ago" }
-  ];
-
-  const handleUserEdit = (idx) => {
-    const current = usersRows[idx];
-    const name = window.prompt("Edit name", current[0]);
-    if (name === null) return;
-    const role = window.prompt("Edit role", current[2]);
-    if (role === null) return;
-    const department = window.prompt("Edit department", current[4]);
-    if (department === null) return;
-    setUsersRows((prev) => prev.map((u, i) => (i === idx ? [name || u[0], u[1], role || u[2], u[3], department || u[4]] : u)));
-    notify("User updated");
-  };
-
-  const handleUserToggle = (idx) => {
-    const current = usersRows[idx];
-    const nextStatus = current[3] === "Active" ? "Inactive" : "Active";
-    const confirmMsg = current[3] === "Active"
-      ? `Deactivate ${current[0]}?`
-      : `Activate ${current[0]}?`;
-    if (!window.confirm(confirmMsg)) return;
-    setUsersRows((prev) => prev.map((u, i) => (i === idx ? [u[0], u[1], u[2], nextStatus, u[4]] : u)));
-    notify(`User ${nextStatus.toLowerCase()}`);
-  };
-
-  const openCreateDepartmentModal = () => {
-    setEditingDepartmentIndex(null);
-    setDepartmentForm({ name: "", head: "", members: "", status: "Active" });
-    setShowDepartmentModal(true);
-  };
-
-  const openEditDepartmentModal = (idx) => {
-    const current = departmentCards[idx];
-    setEditingDepartmentIndex(idx);
-    setDepartmentForm({
-      name: current.name,
-      head: current.head,
-      members: String(Number.parseInt(current.employees, 10) || 0),
-      status: current.status
-    });
-    setShowDepartmentModal(true);
-  };
-
-  const handleDepartmentDelete = (idx) => {
-    if (!window.confirm("Delete this department?")) return;
-    setDepartmentCards((prev) => prev.filter((_, i) => i !== idx));
-    notify("Department deleted");
-  };
-
-  const openCreateRateModal = () => {
-    setEditingRateIndex(null);
-    setRateForm({ role: "", project: "All Projects", rate: "", type: "Hourly" });
-    setShowRateModal(true);
-  };
-
-  const openEditRateModal = (idx) => {
-    const current = billingRates[idx];
-    setEditingRateIndex(idx);
-    setRateForm({ role: current[0], project: current[1], rate: current[2], type: current[3] });
-    setShowRateModal(true);
-  };
-
-  const handleBillingRateDelete = (idx) => {
-    if (!window.confirm("Delete this billing rate?")) return;
-    setBillingRates((prev) => prev.filter((_, i) => i !== idx));
-    notify("Billing rate deleted");
-  };
-
-  const openCreateOvertimeModal = () => {
-    setEditingOvertimeIndex(null);
-    setOvertimeForm({ title: "", threshold: "", multiplier: "", appliesTo: "All Employees" });
-    setShowOvertimeModal(true);
-  };
-
-  const openEditOvertimeModal = (idx) => {
-    const current = overtimeRules[idx];
-    setEditingOvertimeIndex(idx);
-    setOvertimeForm({
-      title: current.title,
-      threshold: current.threshold,
-      multiplier: current.multiplier,
-      appliesTo: current.appliesTo
-    });
-    setShowOvertimeModal(true);
-  };
-
-  const handleOvertimeRuleDelete = (idx) => {
-    if (!window.confirm("Delete this overtime rule?")) return;
-    setOvertimeRules((prev) => prev.filter((_, i) => i !== idx));
-    notify("Overtime rule deleted");
-  };
-
-  const handleGeneralSettingsEdit = () => {
-    const tenantName = window.prompt("Edit tenant name", general.tenantName);
-    if (tenantName === null) return;
-    const timeZone = window.prompt("Edit default time zone", general.timeZone);
-    if (timeZone === null) return;
-    const currency = window.prompt("Edit default currency", general.currency);
-    if (currency === null) return;
-    setGeneral((prev) => ({
-      ...prev,
-      tenantName: tenantName || prev.tenantName,
-      timeZone: timeZone || prev.timeZone,
-      currency: currency || prev.currency
-    }));
-    notify("General settings updated");
-  };
-
-  const handleBrandingEdit = () => {
-    const logoText = window.prompt("Edit logo text", branding.logoText);
-    if (logoText === null) return;
-    const footerNotes = window.prompt("Edit invoice footer notes", branding.footerNotes);
-    if (footerNotes === null) return;
-    setBranding((prev) => ({
-      ...prev,
-      logoText: logoText || prev.logoText,
-      footerNotes: footerNotes || prev.footerNotes
-    }));
-    notify("Branding updated");
-  };
-
-  const openAdminDetails = () => {
-    setAdminDraft(adminProfile);
-    setShowAdminDetails(true);
-  };
-
-  const saveAdminDetails = () => {
-    if (!adminDraft.name || !adminDraft.role || !adminDraft.email) {
-      notify("Name, role, and email are required");
+  async function submitUserForm() {
+    if (!userForm.name.trim() || !userForm.email.trim()) {
+      notify("Name and email are required");
       return;
     }
-    setAdminProfile(adminDraft);
-    setShowAdminDetails(false);
-    notify("Admin user updated");
-  };
 
-  const header = (title, subtitle, btn, onClick) => (
-    <div className="mb-8 flex items-start justify-between gap-4">
-      <div>
-        <h1 className="text-3xl font-semibold text-gray-900 mb-2">{title}</h1>
-        <p className="text-base text-gray-600">{subtitle}</p>
-      </div>
-      {btn && (
-        <button onClick={onClick} className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold inline-flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          {btn}
-        </button>
-      )}
-    </div>
-  );
+    try {
+      const payload = {
+        name: userForm.name,
+        email: userForm.email,
+        role: userForm.role,
+        department: userForm.department,
+        status: userForm.status,
+      };
+      const created = userForm.id
+        ? await tenantApi.updateUser(userForm.id, payload)
+        : await tenantApi.createUser(payload);
+      if (userForm.id) {
+        setUsers((prev) => prev.map((item) => (item.id === userForm.id ? created : item)));
+        notify("User updated");
+      } else {
+        setUsers((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+        notify("User saved to PostgreSQL");
+      }
+      closeDialog();
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not save user");
+    }
+  }
+
+  async function handleToggleUser(user) {
+    const nextStatus = user.status === "Active" ? "Inactive" : "Active";
+    if (!window.confirm(`${nextStatus} ${user.name}?`)) return;
+
+    try {
+      const updated = await tenantApi.updateUser(user.id, { status: nextStatus });
+      setUsers((prev) => prev.map((item) => (item.id === user.id ? updated : item)));
+      notify(`User ${nextStatus.toLowerCase()}`);
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not update user");
+    }
+  }
+
+  async function handleDeleteUser(user) {
+    if (!window.confirm(`Delete ${user.name}?`)) return;
+
+    try {
+      await tenantApi.deleteUser(user.id);
+      setUsers((prev) => prev.filter((item) => item.id !== user.id));
+      notify("User deleted");
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not delete user");
+    }
+  }
+
+  function openDepartmentDialog(department = null) {
+    setDepartmentForm(
+      department
+        ? {
+            id: department.id,
+            name: department.name,
+            head: department.head || "",
+            status: department.status,
+          }
+        : defaultDepartmentForm
+    );
+    setDialog("department");
+  }
+
+  async function submitDepartmentForm() {
+    if (!departmentForm.name.trim()) {
+      notify("Department name is required");
+      return;
+    }
+
+    try {
+      const payload = {
+        name: departmentForm.name,
+        head: departmentForm.head ? Number(departmentForm.head) : null,
+        status: departmentForm.status,
+      };
+      const result = departmentForm.id
+        ? await tenantApi.updateDepartment(departmentForm.id, payload)
+        : await tenantApi.createDepartment(payload);
+      setDepartments((prev) =>
+        departmentForm.id ? prev.map((item) => (item.id === departmentForm.id ? result : item)) : [...prev, result]
+      );
+      notify(departmentForm.id ? "Department updated" : "Department saved to PostgreSQL");
+      closeDialog();
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not save department");
+    }
+  }
+
+  async function handleDeleteDepartment(department) {
+    if (!window.confirm(`Delete ${department.name}?`)) return;
+
+    try {
+      await tenantApi.deleteDepartment(department.id);
+      setDepartments((prev) => prev.filter((item) => item.id !== department.id));
+      notify("Department deleted");
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not delete department");
+    }
+  }
+
+  function openPolicyDialog(policy = null) {
+    setPolicyForm(
+      policy
+        ? {
+            id: policy.id,
+            title: policy.title,
+            description: policy.description || policy.desc,
+            appliesTo: policy.applies_to || policy.applies,
+          }
+        : defaultPolicyForm
+    );
+    setDialog("policy");
+  }
+
+  async function submitPolicyForm() {
+    if (!policyForm.title.trim() || !policyForm.description.trim()) {
+      notify("Policy title and description are required");
+      return;
+    }
+
+    try {
+      const payload = {
+        title: policyForm.title,
+        description: policyForm.description,
+        appliesTo: policyForm.appliesTo,
+      };
+      const result = policyForm.id
+        ? await tenantApi.updatePolicy(policyForm.id, payload)
+        : await tenantApi.createPolicy(payload);
+      setPolicies((prev) => (policyForm.id ? prev.map((item) => (item.id === policyForm.id ? result : item)) : [...prev, result]));
+      notify(policyForm.id ? "Policy updated" : "Policy saved to PostgreSQL");
+      closeDialog();
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not save policy");
+    }
+  }
+
+  async function handleTogglePolicy(policy) {
+    try {
+      const updated = await tenantApi.updatePolicy(policy.id, { enabled: !policy.enabled });
+      setPolicies((prev) => prev.map((item) => (item.id === policy.id ? updated : item)));
+      notify("Policy updated");
+    } catch (err) {
+      notify(err.message || "Could not update policy");
+    }
+  }
+
+  async function handleDeletePolicy(policy) {
+    if (!window.confirm(`Delete ${policy.title}?`)) return;
+
+    try {
+      await tenantApi.deletePolicy(policy.id);
+      setPolicies((prev) => prev.filter((item) => item.id !== policy.id));
+      notify("Policy deleted");
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not delete policy");
+    }
+  }
+
+  function openBillingRateDialog(rate = null) {
+    setBillingRateForm(
+      rate
+        ? {
+            id: rate.id,
+            role: rate.role,
+            project: rate.project,
+            rate: String(rate.hourly_rate ?? rate.rate ?? ""),
+            type: rate.type,
+          }
+        : defaultBillingRateForm
+    );
+    setDialog("billingRate");
+  }
+
+  async function submitBillingRateForm() {
+    if (!billingRateForm.role.trim() || !billingRateForm.rate) {
+      notify("Role and rate are required");
+      return;
+    }
+
+    try {
+      const payload = {
+        role: billingRateForm.role,
+        project: billingRateForm.project,
+        rate: billingRateForm.rate,
+        type: billingRateForm.type,
+      };
+      const result = billingRateForm.id
+        ? await tenantApi.updateBillingRate(billingRateForm.id, payload)
+        : await tenantApi.createBillingRate(payload);
+      setBillingRates((prev) => (billingRateForm.id ? prev.map((item) => (item.id === billingRateForm.id ? result : item)) : [...prev, result]));
+      notify(billingRateForm.id ? "Billing rate updated" : "Billing rate saved");
+      closeDialog();
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not save billing rate");
+    }
+  }
+
+  async function handleDeleteBillingRate(rate) {
+    if (!window.confirm(`Delete ${rate.role} / ${rate.project}?`)) return;
+
+    try {
+      await tenantApi.deleteBillingRate(rate.id);
+      setBillingRates((prev) => prev.filter((item) => item.id !== rate.id));
+      notify("Billing rate deleted");
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not delete billing rate");
+    }
+  }
+
+  function openOvertimeRuleDialog(rule = null) {
+    setOvertimeRuleForm(
+      rule
+        ? {
+            id: rule.id,
+            title: rule.title,
+            threshold: rule.threshold,
+            multiplier: rule.multiplier,
+            appliesTo: rule.applies_to,
+          }
+        : defaultOvertimeRuleForm
+    );
+    setDialog("overtimeRule");
+  }
+
+  async function submitOvertimeRuleForm() {
+    if (!overtimeRuleForm.title.trim()) {
+      notify("Rule title is required");
+      return;
+    }
+
+    try {
+      const payload = {
+        title: overtimeRuleForm.title,
+        threshold: overtimeRuleForm.threshold,
+        multiplier: overtimeRuleForm.multiplier,
+        appliesTo: overtimeRuleForm.appliesTo,
+      };
+      const result = overtimeRuleForm.id
+        ? await tenantApi.updateOvertimeRule(overtimeRuleForm.id, payload)
+        : await tenantApi.createOvertimeRule(payload);
+      setOvertimeRules((prev) => (overtimeRuleForm.id ? prev.map((item) => (item.id === overtimeRuleForm.id ? result : item)) : [...prev, result]));
+      notify(overtimeRuleForm.id ? "Overtime rule updated" : "Overtime rule saved");
+      closeDialog();
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not save overtime rule");
+    }
+  }
+
+  async function handleToggleOvertimeRule(rule) {
+    try {
+      const updated = await tenantApi.updateOvertimeRule(rule.id, { active: !rule.active });
+      setOvertimeRules((prev) => prev.map((item) => (item.id === rule.id ? updated : item)));
+      notify("Overtime rule updated");
+    } catch (err) {
+      notify(err.message || "Could not update overtime rule");
+    }
+  }
+
+  async function handleDeleteOvertimeRule(rule) {
+    if (!window.confirm(`Delete ${rule.title}?`)) return;
+
+    try {
+      await tenantApi.deleteOvertimeRule(rule.id);
+      setOvertimeRules((prev) => prev.filter((item) => item.id !== rule.id));
+      notify("Overtime rule deleted");
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not delete overtime rule");
+    }
+  }
+
+  function openSubscriptionDialog() {
+    if (!subscription) return;
+    setSubscriptionForm({
+      currentPlan: subscription.currentPlan,
+      billingCycle: subscription.billingCycle,
+      licenses: subscription.licenses,
+    });
+    setDialog("subscription");
+  }
+
+  async function submitSubscriptionForm() {
+    try {
+      const updated = await tenantApi.updateSubscription({
+        currentPlan: subscriptionForm.currentPlan,
+        billingCycle: subscriptionForm.billingCycle,
+        licenses: Number(subscriptionForm.licenses),
+      });
+      setSubscription(updated);
+      notify("Subscription updated");
+      closeDialog();
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not update subscription");
+    }
+  }
+
+  function openGeneralSettingsDialog() {
+    const organization = tenantSettings?.organization;
+    if (!organization) return;
+    setGeneralSettingsForm({
+      tenantName: organization.tenantName || "",
+      timeZone: organization.timeZone || "",
+      currency: organization.currency || "",
+      weekStart: organization.weekStart || "",
+      payPeriod: organization.payPeriod || "",
+      maxHours: organization.maxHours || "",
+    });
+    setDialog("generalSettings");
+  }
+
+  async function submitGeneralSettingsForm() {
+    try {
+      const updated = await tenantApi.updateSettings({
+        tenantName: generalSettingsForm.tenantName,
+        timeZone: generalSettingsForm.timeZone,
+        currency: generalSettingsForm.currency,
+        weekStart: generalSettingsForm.weekStart,
+        payPeriod: generalSettingsForm.payPeriod,
+        maxHours: generalSettingsForm.maxHours,
+      });
+      setTenantSettings(updated);
+      setAdminProfile(updated.adminProfile || adminProfile);
+      notify("General settings updated");
+      closeDialog();
+      loadDashboard(true);
+    } catch (err) {
+      notify(err.message || "Could not update settings");
+    }
+  }
+
+  function openBrandingDialog() {
+    const organization = tenantSettings?.organization;
+    if (!organization) return;
+    setBrandingForm({
+      logoText: organization.logoText || "",
+      primary: organization.primary || "",
+      secondary: organization.secondary || "",
+      footerNotes: organization.footerNotes || "",
+    });
+    setDialog("branding");
+  }
+
+  async function submitBrandingForm() {
+    try {
+      const updated = await tenantApi.updateSettings(brandingForm);
+      setTenantSettings(updated);
+      notify("Branding updated");
+      closeDialog();
+    } catch (err) {
+      notify(err.message || "Could not update branding");
+    }
+  }
+
+  function downloadInvoice() {
+    if (!subscription) return;
+    const organization = tenantSettings?.organization;
+    const amount = Number(subscription.monthlyRevenue || 0);
+    const invoiceId = `INV-${new Date().getFullYear()}-${String(subscription.id || 1).padStart(3, "0")}`;
+    const currencyCode = organization?.currency === "USD" ? "USD" : "INR";
+    const doc = new jsPDF();
+
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, 210, 34, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(21);
+    doc.text("Tenant Invoice", 14, 18);
+    doc.setFontSize(10);
+    doc.text(`${tenantName} subscription summary`, 14, 26);
+
+    doc.setTextColor(17, 24, 39);
+    doc.setFontSize(11);
+    doc.text(`Invoice: ${invoiceId}`, 14, 48);
+    doc.text(`Plan: ${subscription.currentPlan}`, 14, 56);
+    doc.text(`Billing Cycle: ${subscription.billingCycle}`, 14, 64);
+    doc.text(`Renewal Date: ${subscription.renewalDate}`, 14, 72);
+    doc.text(`Admin Contact: ${adminProfile?.email || "-"}`, 14, 80);
+
+    autoTable(doc, {
+      startY: 90,
+      head: [["Description", "Qty", "Unit Amount", "Total"]],
+      body: [[
+        `${subscription.currentPlan} plan`,
+        String(subscription.licenses),
+        formatCurrency(amount, currencyCode),
+        formatCurrency(amount, currencyCode),
+      ]],
+      theme: "grid",
+      headStyles: { fillColor: [37, 99, 235] },
+    });
+
+    doc.setFontSize(10);
+    doc.text(organization?.footerNotes || "Generated from tenant dashboard.", 14, (doc.lastAutoTable?.finalY || 120) + 20, {
+      maxWidth: 180,
+    });
+    doc.save(`${invoiceId}.pdf`);
+    notify("Invoice downloaded");
+  }
+
+  const notificationItems = allNotifications.filter((item) => item.clientName === tenantName);
+  const organization = tenantSettings?.organization;
 
   return (
     <RouteGuard allowedRoles={["admin", "tenant"]}>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 flex">
-        {toast && <div className="fixed top-5 right-5 z-50 rounded-xl bg-slate-900 text-white px-4 py-2">{toast}</div>}
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+        {toast ? <div className="fixed right-5 top-5 z-50 rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">{toast}</div> : null}
 
-      {showPolicyModal && (
-        <Modal title="Add New Policy" onClose={() => setShowPolicyModal(false)}>
-          <div className="space-y-4">
-            <Field label="Policy Name *" value={policyForm.name} onChange={(v) => setPolicyForm((p) => ({ ...p, name: v }))} />
-            <TextField label="Description *" value={policyForm.description} onChange={(v) => setPolicyForm((p) => ({ ...p, description: v }))} />
-            <SelectField label="Applies To *" value={policyForm.appliesTo} options={["All users", "All employees", "Managers & above", "Specific departments"]} onChange={(v) => setPolicyForm((p) => ({ ...p, appliesTo: v }))} />
-            <ModalActions onCancel={() => setShowPolicyModal(false)} onSave={() => {
-              if (!policyForm.name || !policyForm.description) return notify("Policy name and description required");
-              setPolicies((prev) => [...prev, { title: policyForm.name, desc: policyForm.description, applies: policyForm.appliesTo, lastUpdated: "Feb 10, 2026", enabled: true, details: ["Custom policy details will be configured after creation."] }]);
-              setPolicyForm({ name: "", description: "", appliesTo: "All users" });
-              setShowPolicyModal(false);
-              notify("Policy added");
-            }} saveText="Add Policy" />
-          </div>
-        </Modal>
-      )}
-
-      {showDepartmentModal && (
-        <Modal title={editingDepartmentIndex === null ? "Create Department" : "Edit Department"} onClose={() => { setShowDepartmentModal(false); setEditingDepartmentIndex(null); }}>
-          <div className="grid md:grid-cols-2 gap-4">
-            <Field label="Department Name *" value={departmentForm.name} onChange={(v) => setDepartmentForm((p) => ({ ...p, name: v }))} />
-            <Field label="Department Head *" value={departmentForm.head} onChange={(v) => setDepartmentForm((p) => ({ ...p, head: v }))} />
-            <Field label="Total Employees *" value={departmentForm.members} onChange={(v) => setDepartmentForm((p) => ({ ...p, members: v }))} />
-            <SelectField label="Status *" value={departmentForm.status} options={["Active", "Inactive", "Pending"]} onChange={(v) => setDepartmentForm((p) => ({ ...p, status: v }))} />
-          </div>
-          <ModalActions onCancel={() => { setShowDepartmentModal(false); setEditingDepartmentIndex(null); }} onSave={() => {
-            if (!departmentForm.name || !departmentForm.head || !departmentForm.members) return notify("All department fields are required");
-            if (editingDepartmentIndex !== null) {
-              setDepartmentCards((prev) => prev.map((d, i) => i === editingDepartmentIndex ? { ...d, name: departmentForm.name, head: departmentForm.head, employees: `${departmentForm.members} members`, status: departmentForm.status } : d));
-            } else {
-              setDepartmentCards((prev) => [...prev, { name: departmentForm.name, head: departmentForm.head, employees: `${departmentForm.members} members`, status: departmentForm.status, created: "Created Feb 2026" }]);
-            }
-            setDepartmentForm({ name: "", head: "", members: "", status: "Active" });
-            setShowDepartmentModal(false);
-            setEditingDepartmentIndex(null);
-            notify(editingDepartmentIndex !== null ? "Department updated" : "Department created");
-          }} saveText={editingDepartmentIndex !== null ? "Update Department" : "Create Department"} />
-        </Modal>
-      )}
-
-      {showUserModal && (
-        <Modal title="Add User" onClose={() => setShowUserModal(false)}>
-          <div className="grid md:grid-cols-2 gap-4">
-            <Field label="Name *" value={userForm.name} onChange={(v) => setUserForm((p) => ({ ...p, name: v }))} />
-            <Field label="Email *" value={userForm.email} onChange={(v) => setUserForm((p) => ({ ...p, email: v }))} />
-            <SelectField label="Role" value={userForm.role} options={["Admin", "Manager", "Employee"]} onChange={(v) => setUserForm((p) => ({ ...p, role: v }))} />
-            <SelectField label="Status" value={userForm.status} options={["Active", "Inactive"]} onChange={(v) => setUserForm((p) => ({ ...p, status: v }))} />
-            <Field label="Department" value={userForm.department} onChange={(v) => setUserForm((p) => ({ ...p, department: v }))} />
-          </div>
-          <ModalActions onCancel={() => setShowUserModal(false)} onSave={() => {
-            if (!userForm.name || !userForm.email) return notify("Name and email are required");
-            setUsersRows((prev) => [...prev, [userForm.name, userForm.email, userForm.role, userForm.status, userForm.department]]);
-            setUserForm({ name: "", email: "", role: "Employee", status: "Active", department: "General" });
-            setShowUserModal(false);
-            notify("User added");
-          }} saveText="Add User" />
-        </Modal>
-      )}
-
-      {showRateModal && (
-        <Modal title={editingRateIndex === null ? "Add Billing Rate" : "Edit Billing Rate"} onClose={() => { setShowRateModal(false); setEditingRateIndex(null); }}>
-          <div className="grid md:grid-cols-2 gap-4">
-            <Field label="Role *" value={rateForm.role} onChange={(v) => setRateForm((p) => ({ ...p, role: v }))} />
-            <Field label="Project" value={rateForm.project} onChange={(v) => setRateForm((p) => ({ ...p, project: v }))} />
-            <Field label="Rate *" value={rateForm.rate} onChange={(v) => setRateForm((p) => ({ ...p, rate: v }))} />
-            <SelectField label="Type" value={rateForm.type} options={["Hourly", "Daily", "Monthly"]} onChange={(v) => setRateForm((p) => ({ ...p, type: v }))} />
-          </div>
-          <ModalActions onCancel={() => { setShowRateModal(false); setEditingRateIndex(null); }} onSave={() => {
-            if (!rateForm.role || !rateForm.rate) return notify("Role and rate are required");
-            if (editingRateIndex !== null) {
-              setBillingRates((prev) => prev.map((r, i) => i === editingRateIndex ? [rateForm.role, rateForm.project, rateForm.rate, rateForm.type] : r));
-            } else {
-              setBillingRates((prev) => [[rateForm.role, rateForm.project, rateForm.rate, rateForm.type], ...prev]);
-            }
-            setRateForm({ role: "", project: "All Projects", rate: "", type: "Hourly" });
-            setShowRateModal(false);
-            setEditingRateIndex(null);
-            notify(editingRateIndex !== null ? "Billing rate updated" : "Billing rate added");
-          }} saveText={editingRateIndex !== null ? "Update Rate" : "Add Rate"} />
-        </Modal>
-      )}
-
-      {showOvertimeModal && (
-        <Modal title={editingOvertimeIndex === null ? "Add Overtime Rule" : "Edit Overtime Rule"} onClose={() => { setShowOvertimeModal(false); setEditingOvertimeIndex(null); }}>
-          <div className="grid md:grid-cols-2 gap-4">
-            <Field label="Rule Name *" value={overtimeForm.title} onChange={(v) => setOvertimeForm((p) => ({ ...p, title: v }))} />
-            <Field label="Threshold *" value={overtimeForm.threshold} onChange={(v) => setOvertimeForm((p) => ({ ...p, threshold: v }))} />
-            <Field label="Multiplier *" value={overtimeForm.multiplier} onChange={(v) => setOvertimeForm((p) => ({ ...p, multiplier: v }))} />
-            <Field label="Applies To" value={overtimeForm.appliesTo} onChange={(v) => setOvertimeForm((p) => ({ ...p, appliesTo: v }))} />
-          </div>
-          <ModalActions onCancel={() => { setShowOvertimeModal(false); setEditingOvertimeIndex(null); }} onSave={() => {
-            if (!overtimeForm.title || !overtimeForm.threshold || !overtimeForm.multiplier) return notify("Rule name, threshold, and multiplier are required");
-            if (editingOvertimeIndex !== null) {
-              setOvertimeRules((prev) => prev.map((r, i) => i === editingOvertimeIndex ? { ...r, title: overtimeForm.title, threshold: overtimeForm.threshold, multiplier: overtimeForm.multiplier, appliesTo: overtimeForm.appliesTo } : r));
-            } else {
-              setOvertimeRules((prev) => [{ ...overtimeForm, active: true }, ...prev]);
-            }
-            setOvertimeForm({ title: "", threshold: "", multiplier: "", appliesTo: "All Employees" });
-            setShowOvertimeModal(false);
-            setEditingOvertimeIndex(null);
-            notify(editingOvertimeIndex !== null ? "Overtime rule updated" : "Overtime rule added");
-          }} saveText={editingOvertimeIndex !== null ? "Update Rule" : "Add Rule"} />
-        </Modal>
-      )}
-
-      {showPlanModal && (
-        <Modal title={planModalMode === "upgrade" ? "Upgrade Plan" : "Manage Plan"} onClose={() => setShowPlanModal(false)}>
-          <div className="grid md:grid-cols-2 gap-4">
-            <SelectField
-              label="Plan"
-              value={planState.currentPlan}
-              options={["Starter", "Professional", "Enterprise"]}
-              onChange={(v) => setPlanState((p) => ({ ...p, currentPlan: v }))}
-            />
-            <SelectField
-              label="Billing Cycle"
-              value={planState.billingCycle}
-              options={["Monthly", "Annual"]}
-              onChange={(v) => setPlanState((p) => ({ ...p, billingCycle: v }))}
-            />
-            <Field
-              label="User Licenses"
-              value={String(planState.licenses)}
-              onChange={(v) => setPlanState((p) => ({ ...p, licenses: Number.parseInt(v, 10) || 0 }))}
-            />
-          </div>
-          <ModalActions
-            onCancel={() => setShowPlanModal(false)}
-            onSave={() => {
-              setShowPlanModal(false);
-              notify(planModalMode === "upgrade" ? "Plan upgraded" : "Plan settings updated");
-            }}
-            saveText={planModalMode === "upgrade" ? "Upgrade" : "Save Changes"}
-          />
-        </Modal>
-      )}
-
-      {selectedPolicy && (
-        <Modal title={selectedPolicy.title} onClose={() => setSelectedPolicy(null)} wide>
-          <p className="text-gray-600 mb-4">{selectedPolicy.desc}</p>
-          <div className="grid md:grid-cols-2 gap-4 mb-5">
-            <InfoTile label="Applies to" value={selectedPolicy.applies} />
-            <InfoTile label="Last updated" value={selectedPolicy.lastUpdated} />
-          </div>
-          <div className="rounded-2xl bg-slate-100 p-5 mb-6">
-            <p className="font-semibold text-gray-900 mb-3">Policy Details</p>
-            <ul className="space-y-2 text-gray-700 list-disc pl-6">{selectedPolicy.details.map((d) => <li key={d}>{d}</li>)}</ul>
-          </div>
-          <div className="flex justify-end"><button onClick={() => setSelectedPolicy(null)} className="px-8 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold">Close</button></div>
-        </Modal>
-      )}
-
-      {selectedAuditLog && (
-        <div className="fixed inset-0 z-50 bg-black/45 p-4 flex items-center justify-center">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-8">
-            <div className="flex items-center justify-between mb-6"><h3 className="text-xl font-semibold text-gray-900">Audit Log Details</h3><button onClick={() => setSelectedAuditLog(null)}><X className="w-7 h-7 text-gray-500" /></button></div>
-            <div className="space-y-4 mb-6">
-              <AuditTile label="Timestamp" value={selectedAuditLog.timestamp} />
-              <AuditTile label="User" value={selectedAuditLog.user} subValue={selectedAuditLog.email} />
-              <AuditTile label="Action" value={selectedAuditLog.action} />
-              <AuditTile label="Resource" value={selectedAuditLog.resource} />
-              <AuditTile label="Details" value={selectedAuditLog.details} />
-            </div>
-            <button onClick={() => setSelectedAuditLog(null)} className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-base font-semibold">Close</button>
-          </div>
-        </div>
-      )}
-
-      {showAdminDetails && (
-        <Modal title="Admin User Details" onClose={() => setShowAdminDetails(false)}>
-          <div className="space-y-4">
-            <Field label="Name *" value={adminDraft.name} onChange={(v) => setAdminDraft((prev) => ({ ...prev, name: v }))} />
-            <Field label="Role *" value={adminDraft.role} onChange={(v) => setAdminDraft((prev) => ({ ...prev, role: v }))} />
-            <Field label="Email *" value={adminDraft.email} onChange={(v) => setAdminDraft((prev) => ({ ...prev, email: v }))} />
-            <Field label="Phone" value={adminDraft.phone} onChange={(v) => setAdminDraft((prev) => ({ ...prev, phone: v }))} />
-            <InfoTile label="Organization" value={general.tenantName} />
-          </div>
-          <div className="mt-6 flex justify-end gap-3">
-            <button onClick={() => setShowAdminDetails(false)} className="px-6 py-2 rounded-xl border-2 border-gray-300">
-              Cancel
-            </button>
-            <button onClick={saveAdminDetails} className="px-6 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
-              Save Changes
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      <aside className="w-[308px] bg-white border-r-2 border-gray-300 flex flex-col">
-        <Link href="/" className="p-6 border-b-2 border-gray-300 flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 flex items-center justify-center"><Clock className="w-6 h-6 text-white" /></div>
-          <div><p className="text-2xl font-semibold text-gray-900">Abhyaka</p><p className="text-sm text-gray-600">Admin Dashboard</p></div>
-        </Link>
-        <nav className="p-4 flex-1">
-          {navItems.map((item) => (<button key={item} onClick={() => setActive(item)} className={`w-full text-left px-4 py-3 rounded-2xl mb-2 ${active === item ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold" : "text-gray-900 hover:bg-gray-100"}`}>{item}</button>))}
-        </nav>
-        <div className="p-4 border-t-2 border-gray-300 space-y-3">
-          <button onClick={openAdminDetails} className="w-full p-3 rounded-2xl bg-slate-100 flex items-center gap-3 text-left hover:bg-slate-200 transition-colors"><div className="w-12 h-12 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold inline-flex items-center justify-center">{adminProfile.name?.charAt(0)?.toUpperCase() || "A"}</div><div><p className="font-semibold text-gray-900">{adminProfile.name}</p><p className="text-sm text-gray-600">{adminProfile.role}</p></div></button>
-          <button onClick={handleLogout} className="p-3 rounded-2xl bg-red-50 border border-red-100 text-red-600 font-semibold inline-flex items-center gap-2"><LogOut className="w-4 h-4" />Logout</button>
-        </div>
-      </aside>
-
-      <main className="flex-1 p-8">
-        {active === "Dashboard" && (
-          <>
-            {header("Dashboard Overview", "Welcome back, Admin. Here's what's happening in your organization.")}
-            <div className="grid md:grid-cols-4 gap-6 mb-8">
-              <CardStat title="Total Users" value={String(totalUsers)} sub={`+${monthlyAddedUsers} this month`} />
-              <CardStat title="Active Departments" value={String(activeDepartments)} sub={`${pendingDepartments} pending setup`} />
-              <CardStat title="Current Plan" value={planState.currentPlan} sub={`${planState.licenses} user licenses`} />
-              <CardStat title="Monthly Usage" value={`${usagePercent}%`} sub={`${activeUsers}/${totalUsers} active users`} />
-            </div>
-            <section className="bg-white border-2 border-gray-300 rounded-2xl p-6">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-5">Recent Activity</h2>
-              <div>
-                {recentActivity.map((activity, idx) => (
-                  <div key={`${activity.id}-${idx}`} className={`flex items-start gap-4 py-4 ${idx < recentActivity.length - 1 ? "border-b border-gray-200" : ""}`}>
-                    <span className="w-11 h-11 rounded-full border-2 border-slate-400 inline-flex items-center justify-center text-slate-700 font-semibold">{activity.id}</span>
-                    <div>
-                      <p className="text-sm text-gray-900">{activity.text}</p>
-                      <p className="text-xs text-slate-500">{activity.time}</p>
-                    </div>
-                  </div>
-                ))}
+        <div className="flex min-h-screen">
+          <aside className="w-72 border-r border-slate-200 bg-white/90 px-6 py-8 backdrop-blur">
+            <div className="mb-10">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-lg">
+                <Building2 className="h-7 w-7" />
               </div>
-            </section>
-          </>
-        )}
-
-        {active === "Users" && (
-          <>
-            {header("Users", "Manage user accounts, roles, and permissions", "Add User", () => setShowUserModal(true))}
-            <section className="bg-white border-2 border-gray-300 rounded-2xl overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-slate-100 border-b border-gray-300"><tr><th className="p-4">Name</th><th className="p-4">Email</th><th className="p-4">Role</th><th className="p-4">Status</th><th className="p-4">Department</th><th className="p-4">Actions</th></tr></thead>
-                <tbody>
-                  {usersRows.map((row, idx) => (
-                    <tr key={`${row[1]}-${idx}`} className="border-b border-gray-200"><td className="p-4">{row[0]}</td><td className="p-4">{row[1]}</td><td className="p-4">{row[2]}</td><td className="p-4"><span className={`px-3 py-1 rounded border ${row[3] === "Active" ? "border-emerald-500 text-emerald-600" : "border-gray-400 text-gray-600"}`}>{row[3]}</span></td><td className="p-4">{row[4]}</td><td className="p-4"><button className="px-3 py-1 border rounded mr-2" onClick={() => handleUserEdit(idx)}>Edit</button><button className="px-3 py-1 border rounded" onClick={() => handleUserToggle(idx)}>{row[3] === "Active" ? "Deactivate" : "Activate"}</button></td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          </>
-        )}
-
-        {active === "Departments" && (
-          <>
-            {header("Departments", "Organize teams and manage department structures", "Create Department", openCreateDepartmentModal)}
-            <div className="grid md:grid-cols-2 gap-4">
-              {departmentCards.map((d, idx) => (
-                <article key={`${d.name}-${idx}`} className="bg-white border-2 border-gray-300 rounded-2xl p-4">
-                  <div className="flex justify-between"><h3 className="text-2xl font-semibold">{d.name}</h3><div className="flex gap-2"><button className="w-8 h-8 border rounded" onClick={() => openEditDepartmentModal(idx)}><Pencil className="w-3.5 h-3.5 mx-auto" /></button><button className="w-8 h-8 border rounded" onClick={() => handleDepartmentDelete(idx)}><X className="w-3.5 h-3.5 mx-auto" /></button></div></div>
-                  <p className="text-gray-600 text-sm mt-3">Department Head</p><p className="text-lg text-gray-900">{d.head}</p>
-                  <p className="text-gray-600 text-sm mt-3">Total Employees</p><p className="text-lg text-gray-900">{d.employees}</p>
-                  <p className="text-gray-600 text-sm mt-3">Status</p><span className={`inline-flex mt-1 px-3 py-1 rounded-lg border text-sm ${statusStyle(d.status)}`}>{d.status}</span>
-                  <div className="mt-4 pt-4 border-t border-gray-200"><p className="text-slate-500 text-sm">{d.created}</p></div>
-                </article>
-              ))}
+              <h1 className="mt-4 text-2xl font-semibold text-slate-900">{tenantName}</h1>
+              <p className="mt-1 text-sm text-slate-500">Tenant workspace backed by PostgreSQL</p>
             </div>
-          </>
-        )}
 
-        {active === "Policies" && (
-          <>
-            {header("Policies", "Configure organizational policies and compliance rules", "Add Policy", () => setShowPolicyModal(true))}
-            <div className="space-y-4">
-              {policies.map((p, i) => (
-                <div key={`${p.title}-${i}`} className="bg-white border-2 border-indigo-300 rounded-2xl p-5">
-                  <div className="flex items-start justify-between gap-6">
-                  <div>
-                      <h3 className="text-2xl font-semibold text-gray-900">{p.title}</h3>
-                      <p className="text-base text-gray-700 mt-1">{p.desc}</p>
-                      <div className="flex flex-wrap gap-5 mt-3 text-slate-500 text-sm"><p>Applies to: {p.applies}</p><p>Last updated: {p.lastUpdated}</p><button className="text-indigo-600 font-semibold" onClick={() => setSelectedPolicy(p)}>Click to view details -&gt;</button></div>
-                    </div>
-                    <div className="flex items-center gap-3 pt-1"><span className="text-sm text-slate-600">{p.enabled ? "ON" : "OFF"}</span><button onClick={() => setPolicies((prev) => prev.map((x, idx) => idx === i ? { ...x, enabled: !x.enabled } : x))} className={`w-12 h-6 rounded-full border-2 relative ${p.enabled ? "border-emerald-600 bg-emerald-100" : "border-gray-400 bg-gray-100"}`}><span className={`absolute top-0.5 w-4 h-4 rounded-full ${p.enabled ? "right-0.5 bg-emerald-600" : "left-0.5 bg-gray-500"}`} /></button></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {active === "Billing & Subscription" && (
-          <>
-            {header("Billing & Subscription", "Manage your subscription plan, usage, and payment history")}
-            <section className="bg-white border-2 border-gray-300 rounded-2xl p-6 mb-8">
-              <div className="flex justify-between items-start mb-6 gap-4"><div><h2 className="text-2xl font-semibold text-gray-900 mb-2">{planState.currentPlan} Plan</h2><p className="text-gray-600">Full access to all features with priority support</p></div><p className="text-3xl font-semibold text-gray-900">{planAmountLabel}<span className="text-lg text-gray-500">/{planState.billingCycle === "Annual" ? "yr" : "mo"}</span></p></div>
-              <div className="grid md:grid-cols-3 gap-6 mb-6"><div><p className="text-gray-500">Plan Type</p><p className="text-xl font-semibold text-gray-900">{planState.billingCycle}</p></div><div><p className="text-gray-500">User Licenses</p><p className="text-xl font-semibold text-gray-900">{planState.licenses} seats</p></div><div><p className="text-gray-500">Next Billing Date</p><p className="text-xl font-semibold text-gray-900">Mar 1, 2026</p></div></div>
-              <p className="text-gray-500 mb-2">License Usage</p>
-              <div className="h-7 border-2 border-gray-300 rounded-md overflow-hidden mb-2">
-                <div
-                  className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-xs inline-flex items-center justify-end pr-3"
-                  style={{ width: `${Math.min(100, Math.round((activeUsers / Math.max(planState.licenses, 1)) * 100))}%` }}
+            <nav className="space-y-2">
+              {navItems.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setActive(item)}
+                  className={`flex w-full items-center rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${
+                    active === item
+                      ? "bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow"
+                      : "text-slate-700 hover:bg-slate-100"
+                  }`}
                 >
-                  {activeUsers} / {planState.licenses} licenses used ({Math.min(100, Math.round((activeUsers / Math.max(planState.licenses, 1)) * 100))}%)
+                  {item}
+                </button>
+              ))}
+            </nav>
+
+            <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Admin</p>
+              <p className="mt-2 text-base font-semibold text-slate-900">{adminProfile?.name || "Tenant Admin"}</p>
+              <p className="text-sm text-slate-500">{adminProfile?.email || "No email"}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </aside>
+
+          <main className="flex-1 px-6 py-8 md:px-10">
+            <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-700">Tenant Admin</p>
+                <h2 className="mt-2 text-3xl font-semibold text-slate-900">{active}</h2>
+                <p className="mt-2 text-sm text-slate-600">
+                  Tenant and admin mock data is now loading from PostgreSQL-backed APIs.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={toggleNotifications}
+                  className="relative rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-700 hover:bg-slate-50"
+                >
+                  <Bell className="h-5 w-5" />
+                  {unreadNotifications > 0 ? (
+                    <span className="absolute right-2 top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
+                      {unreadNotifications}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => loadDashboard(true)}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {showNotifications ? (
+              <section className="mb-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">Tenant Notifications</h3>
+                    <p className="text-sm text-slate-500">Support updates tied to this tenant</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      markClientNotificationsRead(tenantName);
+                      setAllNotifications(getClientNotifications());
+                    }}
+                    className="text-sm font-medium text-blue-700"
+                  >
+                    Mark all read
+                  </button>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {notificationItems.length === 0 ? <p className="text-sm text-slate-500">No notifications yet.</p> : null}
+                  {notificationItems.map((item) => (
+                    <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                      <p className="mt-1 text-sm text-slate-600">{item.message}</p>
+                      <p className="mt-2 text-xs text-slate-500">{new Date(item.time).toLocaleString("en-IN")}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {error ? <p className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
+            {loading ? <p className="text-sm text-slate-600">Loading tenant data...</p> : null}
+
+            {!loading && active === "Dashboard" ? (
+              <div className="space-y-8">
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+                  <StatCard icon={Users} label="Total Users" value={overview?.totalUsers || 0} sub={`${overview?.activeUsers || 0} active`} />
+                  <StatCard icon={Shield} label="Departments" value={overview?.activeDepartments || 0} sub={`${overview?.pendingDepartments || 0} pending`} />
+                  <StatCard icon={CreditCard} label="Plan" value={overview?.currentPlan || "-"} sub={`${overview?.licenses || 0} licenses`} />
+                  <StatCard icon={Clock} label="Usage" value={`${overview?.usagePercent || 0}%`} sub={formatCurrency(overview?.monthlyRevenue || 0)} />
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+                  <Panel title="Tenant Summary" subtitle="Persisted organization data from PostgreSQL">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <InfoTile label="Organization" value={tenantName} />
+                      <InfoTile label="Admin Email" value={adminProfile?.email || "-"} />
+                      <InfoTile label="Time Zone" value={organization?.timeZone || "-"} />
+                      <InfoTile label="Currency" value={organization?.currency || "-"} />
+                      <InfoTile label="Billing Cycle" value={subscription?.billingCycle || "-"} />
+                      <InfoTile label="Renewal Date" value={subscription?.renewalDate || "-"} />
+                    </div>
+                  </Panel>
+
+                  <Panel title="Recent Audit Activity" subtitle="Latest system actions">
+                    <div className="space-y-3">
+                      {auditLogs.slice(0, 5).map((log) => (
+                        <div key={log.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <p className="text-sm font-semibold text-slate-900">{log.action}</p>
+                          <p className="mt-1 text-sm text-slate-600">{log.resource}</p>
+                          <p className="mt-1 text-xs text-slate-500">{log.timestamp}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </Panel>
                 </div>
               </div>
-              <p className="text-gray-500 mb-6">{Math.max(planState.licenses - activeUsers, 0)} licenses available</p>
-              <div className="flex gap-4">
-                <button className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold" onClick={() => { setPlanModalMode("upgrade"); setShowPlanModal(true); }}>Upgrade Plan</button>
-              </div>
-            </section>
-            <section className="bg-white border-2 border-gray-300 rounded-2xl p-6 overflow-hidden">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">Invoice History</h2>
-              <table className="w-full text-left"><thead className="bg-slate-100 border-b border-gray-300"><tr><th className="p-4">Invoice Number</th><th className="p-4">Date</th><th className="p-4">Plan</th><th className="p-4">Amount</th><th className="p-4">Actions</th></tr></thead><tbody><tr className="border-b border-gray-200"><td className="p-4">INV-2026-02</td><td className="p-4">Feb 1, 2026</td><td className="p-4">{planState.currentPlan}</td><td className="p-4 font-semibold">{planAmountLabel}</td><td className="p-4"><button onClick={downloadPdf} className="px-4 py-2 rounded-lg border-2 border-gray-400 inline-flex items-center gap-2"><Download className="w-4 h-4" />Download PDF</button></td></tr></tbody></table>
-            </section>
-          </>
-        )}
+            ) : null}
 
-        {active === "Audit Logs" && (
-          <>
-            {header("Audit Logs", "Track all system activities and user actions for compliance")}
-            <section className="bg-white border-2 border-gray-300 rounded-2xl overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-slate-100 border-b border-gray-300"><tr><th className="p-4">Timestamp</th><th className="p-4">User</th><th className="p-4">Action</th><th className="p-4">Resource</th><th className="p-4">Details</th></tr></thead>
-                <tbody>{initialAuditLogs.map((log) => (<tr key={`${log.timestamp}-${log.resource}`} className="border-b border-gray-200"><td className="p-4">{log.timestamp}</td><td className="p-4">{log.user}</td><td className="p-4">{log.action}</td><td className="p-4">{log.resource}</td><td className="p-4"><button className="px-3 py-1 border rounded text-xs" onClick={() => setSelectedAuditLog(log)}>View</button></td></tr>))}</tbody>
-              </table>
-            </section>
-          </>
-        )}
+            {!loading && active === "Users" ? (
+              <Panel title="Tenant Users" subtitle="Create and manage users stored in PostgreSQL" action={<ActionButton icon={Plus} label="Add User" onClick={() => openUserDialog()} />}>
+                <DataTable
+                  columns={["Name", "Email", "Role", "Department", "Status", "Actions"]}
+                  rows={users.map((user) => [
+                    user.name,
+                    user.email,
+                    user.role,
+                    user.department,
+                    <StatusPill key={`status-${user.id}`} value={user.status} />,
+                    <ActionRow
+                      key={`actions-${user.id}`}
+                      actions={[
+                        { label: "Edit", onClick: () => openUserDialog(user) },
+                        { label: user.status === "Active" ? "Deactivate" : "Activate", onClick: () => handleToggleUser(user) },
+                        { label: "Delete", onClick: () => handleDeleteUser(user), danger: true },
+                      ]}
+                    />,
+                  ])}
+                />
+              </Panel>
+            ) : null}
 
-        {active === "Settings" && (
-          <>
-            {header("Tenant Settings", "Configure organization-wide settings and preferences")}
-            <section className="bg-white border-2 border-gray-300 rounded-2xl mb-8"><div className="px-6 pt-4 border-b border-gray-300 flex flex-wrap gap-8">{settingsTabs.map((t) => <button key={t} onClick={() => setTab(t)} className={`pb-4 ${tab === t ? "text-indigo-600 border-b-4 border-indigo-600 font-semibold" : "text-gray-700"}`}>{t}</button>)}</div></section>
-
-            {tab === "General Settings" && (
-            <section className="bg-white border-2 border-gray-300 rounded-2xl p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-2xl font-semibold text-gray-900">General Tenant Configuration</h2>
-                  <button onClick={handleGeneralSettingsEdit} className="px-4 py-2 rounded-lg border-2 border-gray-400">Edit</button>
+            {!loading && active === "Departments" ? (
+              <Panel
+                title="Departments"
+                subtitle="Department records are persisted and served by the backend"
+                action={<ActionButton icon={Plus} label="Add Department" onClick={() => openDepartmentDialog()} />}
+              >
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                  {departments.map((department) => (
+                    <div key={department.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h3 className="text-lg font-semibold text-slate-900">{department.name}</h3>
+                          <p className="mt-1 text-sm text-slate-500">{department.head_name || "No head assigned"}</p>
+                        </div>
+                        <StatusPill value={department.status} />
+                      </div>
+                      <p className="mt-4 text-sm text-slate-600">{department.employees}</p>
+                      <p className="mt-1 text-xs text-slate-500">{department.created}</p>
+                      <div className="mt-5 flex gap-2">
+                        <MiniButton label="Edit" onClick={() => openDepartmentDialog(department)} />
+                        <MiniButton label="Delete" onClick={() => handleDeleteDepartment(department)} danger />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              <div className="grid md:grid-cols-2 gap-6">
-                  <Field label="Tenant Name *" value={general.tenantName} onChange={(v) => setGeneral((s) => ({ ...s, tenantName: v }))} />
-                  <SelectField label="Default Time Zone *" value={general.timeZone} options={["India Standard Time (IST) - UTC+5:30", "UTC", "Eastern Time", "Pacific Time"]} onChange={(v) => setGeneral((s) => ({ ...s, timeZone: v }))} />
-                  <SelectField label="Default Currency *" value={general.currency} options={["Indian Rupee (\u20B9)", "US Dollar ($)", "British Pound (\u00A3)"]} onChange={(v) => setGeneral((s) => ({ ...s, currency: v }))} />
-                  <SelectField label="Week Start Day *" value={general.weekStart} options={["Monday", "Sunday", "Saturday"]} onChange={(v) => setGeneral((s) => ({ ...s, weekStart: v }))} />
-                  <SelectField label="Pay Period Frequency *" value={general.payPeriod} options={["Weekly", "Bi-weekly", "Monthly"]} onChange={(v) => setGeneral((s) => ({ ...s, payPeriod: v }))} />
-                  <SelectField label="Time Rounding Increment (minutes) *" value={general.rounding} options={["5 minutes", "10 minutes", "15 minutes", "30 minutes"]} onChange={(v) => setGeneral((s) => ({ ...s, rounding: v }))} />
-                  <SelectField label="Maximum Hours Per Day *" value={general.maxHours} options={["8 hours", "10 hours", "12 hours"]} onChange={(v) => setGeneral((s) => ({ ...s, maxHours: v }))} />
-                  <SelectField label="Date Format *" value={general.dateFormat} options={["DD-MM-YYYY (Indian format)", "MM/DD/YYYY", "YYYY-MM-DD"]} onChange={(v) => setGeneral((s) => ({ ...s, dateFormat: v }))} />
-                  <SelectField label="Time Format *" value={general.timeFormat} options={["24-hour (13:00)", "12-hour (1:00 PM)"]} onChange={(v) => setGeneral((s) => ({ ...s, timeFormat: v }))} />
-              </div>
-                <div className="my-8 border-t border-gray-300" />
-                <h3 className="text-3xl font-semibold text-gray-900 mb-5">Organization Structure</h3>
-                <div className="grid md:grid-cols-3 gap-5 mb-6"><div className="rounded-2xl bg-slate-100 p-5"><p className="text-slate-600 text-sm">Total Departments</p><p className="text-4xl font-semibold text-gray-900">12</p><p className="text-slate-500 text-sm">6 active, 6 pending</p></div><div className="rounded-2xl bg-slate-100 p-5"><p className="text-slate-600 text-sm">Locations</p><p className="text-4xl font-semibold text-gray-900">8</p><p className="text-slate-500 text-sm">Across 5 cities</p></div><div className="rounded-2xl bg-slate-100 p-5"><p className="text-slate-600 text-sm">Cost Centers</p><p className="text-4xl font-semibold text-gray-900">24</p><p className="text-slate-500 text-sm">For expense tracking</p></div></div>
-                <p className="text-slate-600 text-lg">Configure departments, locations, and cost centers from their respective sections in the dashboard.</p>
-                <div className="pt-8 mt-8 border-t border-gray-300 flex justify-end gap-4"><button className="px-7 py-3 rounded-2xl border-2 border-gray-400 text-gray-800 font-semibold">Discard Changes</button><button className="px-7 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold inline-flex items-center gap-2"><Save className="w-4 h-4" />Save Settings</button></div>
-              </section>
-            )}
+              </Panel>
+            ) : null}
 
-            {tab === "Billing Rates" && (
-              <section className="bg-white border-2 border-gray-300 rounded-2xl p-6">
-                <div className="flex justify-between items-start mb-6 gap-4"><div><h2 className="text-2xl font-semibold text-gray-900 mb-2">Billing Rates Configuration</h2><p className="text-base text-gray-600">Define billing rates per role and project for invoicing</p></div><button onClick={openCreateRateModal} className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold inline-flex items-center gap-2"><Plus className="w-4 h-4" />Add Billing Rate</button></div>
-                <div className="overflow-hidden rounded-2xl border-2 border-gray-300 mb-5"><table className="w-full text-left"><thead className="border-b border-gray-300 bg-slate-100"><tr><th className="p-4">Role</th><th className="p-4">Project</th><th className="p-4">Rate (\u20B9)</th><th className="p-4">Type</th><th className="p-4">Actions</th></tr></thead><tbody>{billingRates.map((r, i) => (<tr key={`${r[0]}-${i}`} className="border-b border-gray-200"><td className="p-4 font-semibold text-gray-900">{r[0]}</td><td className="p-4 text-gray-700">{r[1]}</td><td className="p-4 text-gray-900">{r[2]}</td><td className="p-4 text-gray-700">{r[3]}</td><td className="p-4"><button onClick={() => openEditRateModal(i)} className="px-4 py-2 rounded-lg border-2 border-gray-400 mr-2">Edit</button><button onClick={() => handleBillingRateDelete(i)} className="px-4 py-2 rounded-lg border-2 border-red-400 text-red-600 inline-flex items-center gap-2"><Trash2 className="w-4 h-4" />Delete</button></td></tr>))}</tbody></table></div>
-                <div className="rounded-2xl border border-blue-300 bg-blue-50 p-4 text-blue-800 text-xs"><p className="font-semibold mb-1 text-sm">Billing Rates Information</p><ul className="list-disc pl-5 space-y-1"><li>Billing rates are used to calculate project costs and generate client invoices</li><li>You can define different rates for the same role across different projects</li><li>Rates are applied to approved timesheet hours for billing calculations</li><li>Historical rates are preserved when changes are made</li></ul></div>
-              </section>
-            )}
-
-            {tab === "Overtime Rules" && (
-              <section className="bg-white border-2 border-gray-300 rounded-2xl p-6">
-                <div className="flex justify-between items-start mb-6 gap-4"><div><h2 className="text-2xl font-semibold text-gray-900 mb-2">Overtime Rules Configuration</h2><p className="text-base text-gray-600">Define overtime eligibility, thresholds, and compensation multipliers</p></div><button onClick={openCreateOvertimeModal} className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold inline-flex items-center gap-2"><Plus className="w-4 h-4" />Add Overtime Rule</button></div>
-                <div className="space-y-6 mb-6">{overtimeRules.map((r, i) => (<article key={`${r.title}-${i}`} className="rounded-2xl border-2 border-gray-300 p-6"><div className="flex justify-between items-start mb-5"><div className="flex items-center gap-4"><h3 className="text-lg font-semibold text-gray-900">{r.title}</h3><span className={`px-3 py-1 rounded-md border text-xs ${r.active ? "border-emerald-500 bg-emerald-50 text-emerald-600" : "border-gray-400 bg-gray-100 text-gray-600"}`}>{r.active ? "Active" : "Inactive"}</span></div><div className="flex gap-2"><button onClick={() => openEditOvertimeModal(i)} className="px-3 py-2 text-sm rounded-lg border-2 border-gray-400">Edit</button><button onClick={() => setOvertimeRules((prev) => prev.map((x, idx) => idx === i ? { ...x, active: !x.active } : x))} className="px-3 py-2 text-sm rounded-lg border-2 border-gray-400">{r.active ? "Disable" : "Enable"}</button><button onClick={() => handleOvertimeRuleDelete(i)} className="px-3 py-2 text-sm rounded-lg border-2 border-red-400 text-red-600 inline-flex items-center gap-2"><Trash2 className="w-4 h-4" />Delete</button></div></div><div className="grid md:grid-cols-3 gap-6"><div><p className="text-gray-500 text-sm">Threshold (hours/week)</p><p className="text-lg font-semibold text-gray-900">{r.threshold}</p></div><div><p className="text-gray-500 text-sm">Pay Multiplier</p><p className="text-lg font-semibold text-gray-900">{r.multiplier}</p></div><div><p className="text-gray-500 text-sm">Applies To</p><p className="text-lg font-semibold text-gray-900">{r.appliesTo}</p></div></div></article>))}</div>
-                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900 text-xs"><p className="font-semibold mb-1 text-sm">Overtime Rules Information</p><ul className="list-disc pl-5 space-y-1"><li>Overtime rules are applied automatically to eligible employees based on weekly hours</li><li>Weekend and holiday overtime can have different multipliers</li><li>Rules are evaluated in order of priority - first matching rule applies</li><li>Ensure compliance with local labor laws and regulations</li><li>Changes to overtime rules apply to future periods only</li></ul></div>
-              </section>
-            )}
-
-            {tab === "Branding" && (
-              <section className="bg-white border-2 border-gray-300 rounded-2xl p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-2xl font-semibold text-gray-900">Tenant Branding Configuration</h2>
-                  <button onClick={handleBrandingEdit} className="px-4 py-2 rounded-lg border-2 border-gray-400">Edit</button>
+            {!loading && active === "Policies" ? (
+              <Panel title="Policies" subtitle="Policy definitions come from tenant policy records" action={<ActionButton icon={Plus} label="Add Policy" onClick={() => openPolicyDialog()} />}>
+                <div className="space-y-4">
+                  {policies.map((policy) => (
+                    <div key={policy.id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <h3 className="text-lg font-semibold text-slate-900">{policy.title}</h3>
+                          <p className="mt-2 text-sm text-slate-600">{policy.desc}</p>
+                          <p className="mt-2 text-xs text-slate-500">
+                            Applies to {policy.applies} • Updated {policy.lastUpdated}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <MiniButton label="Edit" onClick={() => openPolicyDialog(policy)} />
+                          <MiniButton label={policy.enabled ? "Disable" : "Enable"} onClick={() => handleTogglePolicy(policy)} />
+                          <MiniButton label="Delete" onClick={() => handleDeletePolicy(policy)} danger />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="mb-6"><label className="block mb-2 text-gray-900">Invoice Footer Notes</label><textarea className="w-full min-h-28 rounded-xl border-2 border-gray-300 px-4 py-3" value={branding.footerNotes} onChange={(e) => setBranding((b) => ({ ...b, footerNotes: e.target.value }))} /></div>
-                <div className="rounded-2xl p-4 mb-6" style={{ background: `linear-gradient(90deg, ${branding.primary}, ${branding.secondary})` }}><div className="bg-white rounded-2xl p-6"><div className="flex justify-between mb-6"><div className="w-16 h-16 rounded-2xl text-white text-3xl font-semibold inline-flex items-center justify-center" style={{ background: `linear-gradient(90deg, ${branding.primary}, ${branding.secondary})` }}>{branding.logoText}</div><div className="text-right"><p className="text-3xl font-semibold text-gray-900">INVOICE</p><p className="text-gray-600">INV-2026-001</p></div></div><div className="border-t border-gray-200 pt-4 text-gray-700">{branding.footerNotes}</div></div></div>
-            </section>
-            )}
-          </>
-        )}
-      </main>
+              </Panel>
+            ) : null}
+
+            {!loading && active === "Billing & Subscription" ? (
+              <div className="space-y-8">
+                <Panel
+                  title="Subscription"
+                  subtitle="Plan and billing data persisted in PostgreSQL"
+                  action={<ActionButton icon={Save} label="Update Subscription" onClick={openSubscriptionDialog} />}
+                >
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <InfoTile label="Current Plan" value={subscription?.currentPlan || "-"} />
+                    <InfoTile label="Billing Cycle" value={subscription?.billingCycle || "-"} />
+                    <InfoTile label="Licenses" value={subscription?.licenses || 0} />
+                    <InfoTile label="Monthly Revenue" value={formatCurrency(subscription?.monthlyRevenue || 0)} />
+                  </div>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <ActionButton icon={Download} label="Download Invoice" onClick={downloadInvoice} />
+                  </div>
+                </Panel>
+
+                <Panel
+                  title="Billing Rates"
+                  subtitle="Rates stored in tenant billing tables"
+                  action={<ActionButton icon={Plus} label="Add Rate" onClick={() => openBillingRateDialog()} />}
+                >
+                  <DataTable
+                    columns={["Role", "Project", "Rate", "Type", "Actions"]}
+                    rows={billingRates.map((rate) => [
+                      rate.role,
+                      rate.project,
+                      rate.rate,
+                      rate.type,
+                      <ActionRow
+                        key={`rate-${rate.id}`}
+                        actions={[
+                          { label: "Edit", onClick: () => openBillingRateDialog(rate) },
+                          { label: "Delete", onClick: () => handleDeleteBillingRate(rate), danger: true },
+                        ]}
+                      />,
+                    ])}
+                  />
+                </Panel>
+              </div>
+            ) : null}
+
+            {!loading && active === "Audit Logs" ? (
+              <Panel title="Audit Logs" subtitle="Recent tenant actions written by backend workflows">
+                <DataTable
+                  columns={["Timestamp", "User", "Action", "Resource", "Details"]}
+                  rows={auditLogs.map((log) => [log.timestamp, log.user, log.action, log.resource, log.details])}
+                />
+              </Panel>
+            ) : null}
+
+            {!loading && active === "Settings" ? (
+              <div className="space-y-6">
+                <div className="flex flex-wrap gap-2">
+                  {settingsTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setSettingsTab(tab)}
+                      className={`rounded-2xl px-4 py-2 text-sm font-medium ${
+                        settingsTab === tab ? "bg-blue-600 text-white" : "bg-white text-slate-700"
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
+                {settingsTab === "General Settings" ? (
+                  <Panel title="General Settings" subtitle="Organization settings stored in PostgreSQL" action={<ActionButton icon={Save} label="Save" onClick={openGeneralSettingsDialog} />}>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <InfoTile label="Tenant Name" value={organization?.tenantName || "-"} />
+                      <InfoTile label="Time Zone" value={organization?.timeZone || "-"} />
+                      <InfoTile label="Currency" value={organization?.currency || "-"} />
+                      <InfoTile label="Week Start" value={organization?.weekStart || "-"} />
+                      <InfoTile label="Pay Period" value={organization?.payPeriod || "-"} />
+                      <InfoTile label="Max Hours" value={organization?.maxHours || "-"} />
+                    </div>
+                  </Panel>
+                ) : null}
+
+                {settingsTab === "Billing Rates" ? (
+                  <Panel title="Billing Rates" subtitle="Quick view of configured tenant rates">
+                    <DataTable
+                      columns={["Role", "Project", "Rate", "Type"]}
+                      rows={billingRates.map((rate) => [rate.role, rate.project, rate.rate, rate.type])}
+                    />
+                  </Panel>
+                ) : null}
+
+                {settingsTab === "Overtime Rules" ? (
+                  <Panel title="Overtime Rules" subtitle="Rules are loaded from the overtime rules table" action={<ActionButton icon={Plus} label="Add Rule" onClick={() => openOvertimeRuleDialog()} />}>
+                    <div className="space-y-4">
+                      {overtimeRules.map((rule) => (
+                        <div key={rule.id} className="rounded-3xl border border-slate-200 bg-white p-5">
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-900">{rule.title}</h3>
+                              <p className="mt-1 text-sm text-slate-600">
+                                {rule.threshold} • {rule.multiplier} • {rule.applies_to}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <MiniButton label="Edit" onClick={() => openOvertimeRuleDialog(rule)} />
+                              <MiniButton label={rule.active ? "Disable" : "Enable"} onClick={() => handleToggleOvertimeRule(rule)} />
+                              <MiniButton label="Delete" onClick={() => handleDeleteOvertimeRule(rule)} danger />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Panel>
+                ) : null}
+
+                {settingsTab === "Branding" ? (
+                  <Panel title="Branding" subtitle="Brand colors and footer notes stored on the tenant organization" action={<ActionButton icon={Settings} label="Update Branding" onClick={openBrandingDialog} />}>
+                    <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
+                      <div className="space-y-4">
+                        <InfoTile label="Logo Text" value={organization?.logoText || "-"} />
+                        <InfoTile label="Primary Color" value={organization?.primary || "-"} />
+                        <InfoTile label="Secondary Color" value={organization?.secondary || "-"} />
+                      </div>
+                      <div
+                        className="rounded-3xl p-6 text-white shadow-lg"
+                        style={{ background: `linear-gradient(135deg, ${organization?.primary || "#2563eb"}, ${organization?.secondary || "#4338ca"})` }}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/20 text-2xl font-semibold">
+                            {organization?.logoText || "TN"}
+                          </div>
+                          <div>
+                            <p className="text-sm uppercase tracking-[0.2em] text-white/70">Invoice Footer</p>
+                            <p className="mt-2 text-sm leading-6 text-white/90">{organization?.footerNotes || "No footer notes configured."}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Panel>
+                ) : null}
+              </div>
+            ) : null}
+          </main>
+        </div>
+
+        <FormModal
+          open={dialog === "user"}
+          title={userForm.id ? "Edit User" : "Add User"}
+          description="Create or update a tenant user with proper form fields."
+          onClose={closeDialog}
+          onSubmit={submitUserForm}
+          submitLabel={userForm.id ? "Save User" : "Create User"}
+        >
+          <FormGrid>
+            <TextInput label="Full Name" value={userForm.name} onChange={(value) => setUserForm((prev) => ({ ...prev, name: value }))} />
+            <TextInput label="Email" type="email" value={userForm.email} onChange={(value) => setUserForm((prev) => ({ ...prev, email: value }))} />
+            <SelectInput label="Role" value={userForm.role} onChange={(value) => setUserForm((prev) => ({ ...prev, role: value }))} options={["Employee", "Manager", "Tenant", "Admin", "Finance"]} />
+            <SelectInput label="Status" value={userForm.status} onChange={(value) => setUserForm((prev) => ({ ...prev, status: value }))} options={["Active", "Inactive"]} />
+            <TextInput label="Department" value={userForm.department} onChange={(value) => setUserForm((prev) => ({ ...prev, department: value }))} />
+          </FormGrid>
+        </FormModal>
+
+        <FormModal
+          open={dialog === "department"}
+          title={departmentForm.id ? "Edit Department" : "Add Department"}
+          description="Manage department details for this tenant."
+          onClose={closeDialog}
+          onSubmit={submitDepartmentForm}
+          submitLabel={departmentForm.id ? "Save Department" : "Create Department"}
+        >
+          <FormGrid>
+            <TextInput label="Department Name" value={departmentForm.name} onChange={(value) => setDepartmentForm((prev) => ({ ...prev, name: value }))} />
+            <SelectInput
+              label="Department Head"
+              value={String(departmentForm.head)}
+              onChange={(value) => setDepartmentForm((prev) => ({ ...prev, head: value }))}
+              options={["", ...users.map((user) => String(user.id))]}
+              labels={["No head assigned", ...users.map((user) => `${user.name} (${user.id})`)]}
+            />
+            <SelectInput label="Status" value={departmentForm.status} onChange={(value) => setDepartmentForm((prev) => ({ ...prev, status: value }))} options={["Active", "Pending", "Inactive"]} />
+          </FormGrid>
+        </FormModal>
+
+        <FormModal
+          open={dialog === "policy"}
+          title={policyForm.id ? "Edit Policy" : "Add Policy"}
+          description="Update tenant rules with a structured policy form."
+          onClose={closeDialog}
+          onSubmit={submitPolicyForm}
+          submitLabel={policyForm.id ? "Save Policy" : "Create Policy"}
+        >
+          <FormGrid>
+            <TextInput label="Policy Title" value={policyForm.title} onChange={(value) => setPolicyForm((prev) => ({ ...prev, title: value }))} />
+            <SelectInput label="Applies To" value={policyForm.appliesTo} onChange={(value) => setPolicyForm((prev) => ({ ...prev, appliesTo: value }))} options={["All users", "All Employees", "Managers & above", "Finance", "Tenant Admins"]} />
+          </FormGrid>
+          <TextAreaInput label="Description" value={policyForm.description} onChange={(value) => setPolicyForm((prev) => ({ ...prev, description: value }))} />
+        </FormModal>
+
+        <FormModal
+          open={dialog === "billingRate"}
+          title={billingRateForm.id ? "Edit Billing Rate" : "Add Billing Rate"}
+          description="Configure project billing with a dedicated form."
+          onClose={closeDialog}
+          onSubmit={submitBillingRateForm}
+          submitLabel={billingRateForm.id ? "Save Rate" : "Create Rate"}
+        >
+          <FormGrid>
+            <TextInput label="Role" value={billingRateForm.role} onChange={(value) => setBillingRateForm((prev) => ({ ...prev, role: value }))} />
+            <TextInput label="Project" value={billingRateForm.project} onChange={(value) => setBillingRateForm((prev) => ({ ...prev, project: value }))} />
+            <TextInput label="Hourly Rate" type="number" value={billingRateForm.rate} onChange={(value) => setBillingRateForm((prev) => ({ ...prev, rate: value }))} />
+            <SelectInput label="Rate Type" value={billingRateForm.type} onChange={(value) => setBillingRateForm((prev) => ({ ...prev, type: value }))} options={["Hourly", "Daily", "Monthly"]} />
+          </FormGrid>
+        </FormModal>
+
+        <FormModal
+          open={dialog === "overtimeRule"}
+          title={overtimeRuleForm.id ? "Edit Overtime Rule" : "Add Overtime Rule"}
+          description="Set overtime thresholds and compensation rules."
+          onClose={closeDialog}
+          onSubmit={submitOvertimeRuleForm}
+          submitLabel={overtimeRuleForm.id ? "Save Rule" : "Create Rule"}
+        >
+          <FormGrid>
+            <TextInput label="Rule Title" value={overtimeRuleForm.title} onChange={(value) => setOvertimeRuleForm((prev) => ({ ...prev, title: value }))} />
+            <TextInput label="Threshold" value={overtimeRuleForm.threshold} onChange={(value) => setOvertimeRuleForm((prev) => ({ ...prev, threshold: value }))} />
+            <TextInput label="Multiplier" value={overtimeRuleForm.multiplier} onChange={(value) => setOvertimeRuleForm((prev) => ({ ...prev, multiplier: value }))} />
+            <TextInput label="Applies To" value={overtimeRuleForm.appliesTo} onChange={(value) => setOvertimeRuleForm((prev) => ({ ...prev, appliesTo: value }))} />
+          </FormGrid>
+        </FormModal>
+
+        <FormModal
+          open={dialog === "subscription"}
+          title="Update Subscription"
+          description="Edit the current subscription details for this tenant."
+          onClose={closeDialog}
+          onSubmit={submitSubscriptionForm}
+          submitLabel="Save Subscription"
+        >
+          <FormGrid>
+            <SelectInput label="Plan" value={subscriptionForm.currentPlan} onChange={(value) => setSubscriptionForm((prev) => ({ ...prev, currentPlan: value }))} options={["Starter", "Professional", "Enterprise"]} />
+            <SelectInput label="Billing Cycle" value={subscriptionForm.billingCycle} onChange={(value) => setSubscriptionForm((prev) => ({ ...prev, billingCycle: value }))} options={["Monthly", "Annual"]} />
+            <TextInput label="Licenses" type="number" value={String(subscriptionForm.licenses)} onChange={(value) => setSubscriptionForm((prev) => ({ ...prev, licenses: value }))} />
+          </FormGrid>
+        </FormModal>
+
+        <FormModal
+          open={dialog === "generalSettings"}
+          title="General Settings"
+          description="Edit the main tenant configuration in one place."
+          onClose={closeDialog}
+          onSubmit={submitGeneralSettingsForm}
+          submitLabel="Save Settings"
+        >
+          <FormGrid>
+            <TextInput label="Tenant Name" value={generalSettingsForm.tenantName} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, tenantName: value }))} />
+            <TextInput label="Time Zone" value={generalSettingsForm.timeZone} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, timeZone: value }))} />
+            <TextInput label="Currency" value={generalSettingsForm.currency} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, currency: value }))} />
+            <TextInput label="Week Start" value={generalSettingsForm.weekStart} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, weekStart: value }))} />
+            <TextInput label="Pay Period" value={generalSettingsForm.payPeriod} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, payPeriod: value }))} />
+            <TextInput label="Max Hours" value={generalSettingsForm.maxHours} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, maxHours: value }))} />
+          </FormGrid>
+        </FormModal>
+
+        <FormModal
+          open={dialog === "branding"}
+          title="Branding"
+          description="Update tenant colors, logo text, and invoice footer notes."
+          onClose={closeDialog}
+          onSubmit={submitBrandingForm}
+          submitLabel="Save Branding"
+        >
+          <FormGrid>
+            <TextInput label="Logo Text" value={brandingForm.logoText} onChange={(value) => setBrandingForm((prev) => ({ ...prev, logoText: value }))} />
+            <TextInput label="Primary Color" value={brandingForm.primary} onChange={(value) => setBrandingForm((prev) => ({ ...prev, primary: value }))} />
+            <TextInput label="Secondary Color" value={brandingForm.secondary} onChange={(value) => setBrandingForm((prev) => ({ ...prev, secondary: value }))} />
+          </FormGrid>
+          <TextAreaInput label="Footer Notes" value={brandingForm.footerNotes} onChange={(value) => setBrandingForm((prev) => ({ ...prev, footerNotes: value }))} />
+        </FormModal>
+
+        <HelpButton dashboardName="Tenant" clientName={tenantName} requesterName={adminProfile?.name || "Tenant Admin"} />
       </div>
     </RouteGuard>
   );
 }
 
-function Modal({ title, onClose, children, wide }) {
+function Panel({ title, subtitle, action, children }) {
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 p-4 flex items-center justify-center">
-      <div className={`w-full ${wide ? "max-w-3xl" : "max-w-2xl"} rounded-3xl bg-white border-2 border-gray-200 p-8`}>
-        <div className="flex items-center justify-between mb-6"><h3 className="text-2xl font-semibold text-gray-900">{title}</h3><button onClick={onClose}><X className="w-6 h-6 text-gray-500" /></button></div>
-        {children}
+    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
+          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+        </div>
+        {action}
       </div>
-    </div>
+      {children}
+    </section>
   );
 }
 
-function ModalActions({ onCancel, onSave, saveText }) {
-  return <div className="mt-6 flex justify-end gap-3"><button onClick={onCancel} className="px-6 py-3 rounded-xl border-2 border-gray-300">Cancel</button><button onClick={onSave} className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white">{saveText}</button></div>;
-}
-
-function CardStat({ title, value, sub, sub2 }) {
-  return <div className="bg-white border-2 border-gray-300 rounded-2xl p-6"><p className="text-gray-600 text-base">{title}</p><p className="text-4xl font-semibold text-gray-900">{value}</p><p className="text-base text-slate-500 mt-1">{sub}</p>{sub2 ? <p className="text-base text-slate-500">{sub2}</p> : null}</div>;
+function StatCard({ icon: Icon, label, value, sub }) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-slate-500">{label}</p>
+        <Icon className="h-5 w-5 text-blue-700" />
+      </div>
+      <p className="mt-4 text-3xl font-semibold text-slate-900">{value}</p>
+      <p className="mt-2 text-sm text-slate-500">{sub}</p>
+    </div>
+  );
 }
 
 function InfoTile({ label, value }) {
-  return <div className="rounded-2xl bg-slate-100 p-4"><p className="text-sm text-gray-500">{label}</p><p className="text-lg text-gray-900">{value}</p></div>;
-}
-
-function AuditTile({ label, value, subValue }) {
-  return <div className="rounded-3xl bg-slate-100 p-4"><p className="text-xs text-slate-600">{label}</p><p className="text-sm text-gray-900">{value}</p>{subValue ? <p className="text-xs text-slate-600">{subValue}</p> : null}</div>;
-}
-
-function Field({ label, value, onChange }) {
   return (
-    <div>
-      <label className="block mb-2 text-gray-900">{label}</label>
-      <input value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-xl border-2 border-gray-300 px-4 py-2" />
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className="mt-2 text-base font-medium text-slate-900">{value}</p>
     </div>
   );
 }
 
-function TextField({ label, value, onChange }) {
+function DataTable({ columns, rows }) {
   return (
-    <div>
-      <label className="block mb-2 text-gray-900">{label}</label>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} className="w-full min-h-28 rounded-xl border-2 border-gray-300 px-4 py-2" />
+    <div className="overflow-x-auto rounded-3xl border border-slate-200">
+      <table className="w-full min-w-[720px] text-left">
+        <thead className="bg-slate-50">
+          <tr>
+            {columns.map((column) => (
+              <th key={column} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                {column}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200 bg-white">
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="px-4 py-8 text-center text-sm text-slate-500">
+                No records available.
+              </td>
+            </tr>
+          ) : (
+            rows.map((row, index) => (
+              <tr key={index}>
+                {row.map((cell, cellIndex) => (
+                  <td key={cellIndex} className="px-4 py-4 text-sm text-slate-700">
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function SelectField({ label, value, options, onChange }) {
+function StatusPill({ value }) {
+  const styles =
+    value === "Active"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : value === "Pending"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-slate-200 bg-slate-100 text-slate-600";
+
+  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${styles}`}>{value}</span>;
+}
+
+function ActionButton({ icon: Icon, label, onClick }) {
   return (
-    <div>
-      <label className="block mb-2 text-gray-900">{label}</label>
-      <div className="relative">
-        <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full appearance-none rounded-xl border-2 border-gray-300 px-4 py-2 pr-10 bg-white">
-          {options.map((opt) => <option key={opt}>{opt}</option>)}
-        </select>
-        <ChevronDown className="w-5 h-5 text-gray-500 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-700 px-4 py-3 text-sm font-semibold text-white shadow-sm"
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </button>
+  );
+}
+
+function MiniButton({ label, onClick, danger = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-xl border px-3 py-2 text-sm font-medium ${
+        danger ? "border-rose-200 text-rose-700 hover:bg-rose-50" : "border-slate-300 text-slate-700 hover:bg-slate-50"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ActionRow({ actions }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {actions.map((action) => (
+        <MiniButton key={action.label} label={action.label} onClick={action.onClick} danger={action.danger} />
+      ))}
+    </div>
+  );
+}
+
+function FormModal({ open, title, description, onClose, onSubmit, submitLabel, children }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+      <div className="absolute inset-0" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-3xl rounded-[28px] border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
+          <div>
+            <h3 className="text-2xl font-semibold text-slate-900">{title}</h3>
+            <p className="mt-1 text-sm text-slate-500">{description}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="px-6 py-6">{children}</div>
+        <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-5">
+          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button type="button" onClick={onSubmit} className="rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm">
+            {submitLabel}
+          </button>
+        </div>
       </div>
     </div>
+  );
+}
+
+function FormGrid({ children }) {
+  return <div className="grid gap-4 md:grid-cols-2">{children}</div>;
+}
+
+function TextInput({ label, value, onChange, type = "text" }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-medium text-slate-700">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      />
+    </label>
+  );
+}
+
+function TextAreaInput({ label, value, onChange }) {
+  return (
+    <label className="mt-4 block">
+      <span className="mb-2 block text-sm font-medium text-slate-700">{label}</span>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={5}
+        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      />
+    </label>
+  );
+}
+
+function SelectInput({ label, value, onChange, options, labels }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-medium text-slate-700">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      >
+        {options.map((option, index) => (
+          <option key={`${label}-${option || "empty"}-${index}`} value={option}>
+            {labels?.[index] || option}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }

@@ -18,6 +18,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 
 class TimeEntrySerializer(serializers.ModelSerializer):
     project = ProjectSerializer(read_only=True)
+    duration_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = TimeEntry
@@ -29,10 +30,17 @@ class TimeEntrySerializer(serializers.ModelSerializer):
             "start_time",
             "end_time",
             "duration_minutes",
+            "duration_seconds",
             "note",
             "created_at",
         )
         read_only_fields = ("employee", "duration_minutes", "source")
+
+    def get_duration_seconds(self, obj):
+        if obj.start_time and obj.end_time:
+            delta = obj.end_time - obj.start_time
+            return max(int(delta.total_seconds()), 0)
+        return int(obj.duration_minutes or 0) * 60
 
 
 class PunchInSerializer(serializers.Serializer):
@@ -69,6 +77,7 @@ class ManualTimeEntrySerializer(serializers.Serializer):
 class TimesheetLineSerializer(serializers.ModelSerializer):
     project = ProjectSerializer(read_only=True)
     project_id = serializers.IntegerField(write_only=True, required=False)
+    time_entry_detail = TimeEntrySerializer(source="time_entry", read_only=True)
 
     class Meta:
         model = TimesheetLine
@@ -82,6 +91,7 @@ class TimesheetLineSerializer(serializers.ModelSerializer):
             "hours",
             "shift",
             "time_entry",
+            "time_entry_detail",
             "created_at",
             "updated_at",
         )
@@ -150,12 +160,16 @@ class TimesheetSerializer(serializers.ModelSerializer):
     lines = TimesheetLineSerializer(many=True, read_only=True)
     approvals = TimesheetApprovalSerializer(many=True, read_only=True)
     total_hours = serializers.SerializerMethodField()
+    employee_name = serializers.SerializerMethodField()
+    employee_username = serializers.CharField(source="employee.username", read_only=True)
 
     class Meta:
         model = Timesheet
         fields = (
             "id",
             "employee",
+            "employee_username",
+            "employee_name",
             "week_start",
             "status",
             "submitted_at",
@@ -167,18 +181,35 @@ class TimesheetSerializer(serializers.ModelSerializer):
     def get_total_hours(self, obj):
         return float(sum(line.hours for line in obj.lines.all()))
 
+    def get_employee_name(self, obj):
+        full_name = obj.employee.get_full_name().strip()
+        return full_name or obj.employee.username
+
 
 class ManagerTimesheetListSerializer(serializers.ModelSerializer):
-    employee_name = serializers.CharField(source="employee.get_full_name", read_only=True)
+    employee_name = serializers.SerializerMethodField()
     employee_username = serializers.CharField(source="employee.username", read_only=True)
     total_hours = serializers.SerializerMethodField()
 
     class Meta:
         model = Timesheet
-        fields = ("id", "employee", "employee_username", "employee_name", "week_start", "status", "total_hours")
+        fields = (
+            "id",
+            "employee",
+            "employee_username",
+            "employee_name",
+            "week_start",
+            "submitted_at",
+            "status",
+            "total_hours",
+        )
 
     def get_total_hours(self, obj):
         return float(sum(line.hours for line in obj.lines.all()))
+
+    def get_employee_name(self, obj):
+        full_name = obj.employee.get_full_name().strip()
+        return full_name or obj.employee.username
 
 
 class ApprovalActionSerializer(serializers.Serializer):

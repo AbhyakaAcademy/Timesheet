@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   Clock,
   Eye,
   EyeOff,
@@ -55,6 +54,14 @@ export default function SignUpPage() {
       setPasswordError("Password must be at least 8 characters");
       return false;
     }
+    if (!/[A-Z]/.test(value)) {
+      setPasswordError("Password must include at least one uppercase letter");
+      return false;
+    }
+    if (!/[^A-Za-z0-9]/.test(value)) {
+      setPasswordError("Password must include at least one special character");
+      return false;
+    }
     setPasswordError("");
     return true;
   };
@@ -95,17 +102,13 @@ export default function SignUpPage() {
 
   const passwordChecks = [
     { label: "At least 8 characters", met: password.length >= 8 },
+    { label: "One uppercase letter", met: /[A-Z]/.test(password) },
+    { label: "One special character", met: /[^A-Za-z0-9]/.test(password) },
     { label: "Passwords match", met: password && confirmPassword && password === confirmPassword }
   ];
 
   return (
     <div className="min-h-screen bg-gray-50 relative">
-      <div className="pt-8 px-6">
-        <Link href="/" className="inline-flex items-center gap-2 text-indigo-600 font-semibold">
-          <ArrowLeft className="w-4 h-4" />
-          Back to Home
-        </Link>
-      </div>
       <div className="min-h-[calc(100vh-56px)] flex">
       {/* LEFT BRANDING */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-700 p-12 flex-col justify-between">
@@ -196,15 +199,15 @@ export default function SignUpPage() {
                       if (passwordError) validatePassword(e.target.value);
                     }}
                     onBlur={(e) => validatePassword(e.target.value)}
-                    className="w-full px-4 py-3 border rounded-lg pr-12"
-                    placeholder="Minimum 8 characters"
+                    className="no-password-reveal w-full px-4 py-3 border rounded-lg pr-12"
+                    placeholder="Min 8 chars, uppercase, number, symbol"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2"
                   >
-                    {showPassword ? <EyeOff /> : <Eye />}
+                    {showPassword ? <Eye /> : <EyeOff />}
                   </button>
                 </div>
                 {passwordError && <p className="text-red-600 text-sm mt-1">{passwordError}</p>}
@@ -224,7 +227,7 @@ export default function SignUpPage() {
                       if (confirmPasswordError) validateConfirmPassword(e.target.value);
                     }}
                     onBlur={(e) => validateConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-3 border rounded-lg pr-12"
+                    className="no-password-reveal w-full px-4 py-3 border rounded-lg pr-12"
                     placeholder="Re-enter password"
                   />
                   <button
@@ -232,7 +235,7 @@ export default function SignUpPage() {
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2"
                   >
-                    {showConfirmPassword ? <EyeOff /> : <Eye />}
+                    {showConfirmPassword ? <Eye /> : <EyeOff />}
                   </button>
                 </div>
                 {confirmPasswordError && (

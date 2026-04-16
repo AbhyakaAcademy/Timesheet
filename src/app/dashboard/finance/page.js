@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { clearSession } from '@/lib/auth'
+import HelpButton from '@/components/support/HelpButton'
+import { getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from '@/lib/supportTickets'
 
 const navItems = [
   { id: 'clients', label: 'Clients', icon: UsersIcon },
@@ -109,15 +111,34 @@ function normalizeExportJob(job) {
 export default function FinanceDashboard() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('clients')
+  const [supportNotifications, setSupportNotifications] = useState(() => getClientNotifications())
 
   const handleLogout = () => {
     clearSession()
     router.push('/login')
   }
 
+  useEffect(() => subscribeToClientNotifications(setSupportNotifications), [])
+
+  const financeNotifications = useMemo(
+    () => supportNotifications.filter(item => item.clientName === 'Finance Dashboard'),
+    [supportNotifications]
+  )
+
+  const unreadFinanceNotifications = useMemo(
+    () => financeNotifications.filter(item => !item.read).length,
+    [financeNotifications]
+  )
+
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
-      <Sidebar activeTab={activeTab} onSelect={setActiveTab} onLogout={handleLogout} />
+      <Sidebar
+        activeTab={activeTab}
+        onSelect={setActiveTab}
+        onLogout={handleLogout}
+        notifications={financeNotifications}
+        unreadCount={unreadFinanceNotifications}
+      />
       <main className="flex-1 px-10 py-8">
         {activeTab === 'clients' && <ClientsSection />}
         {activeTab === 'projects' && <ProjectsSection />}
@@ -125,12 +146,22 @@ export default function FinanceDashboard() {
         {activeTab === 'invoices' && <InvoicesSection />}
         {activeTab === 'exports' && <ExportsSection />}
       </main>
-      <HelpButton />
+      <HelpButton dashboardName="Finance" clientName="Finance Dashboard" requesterName="Finance Admin" />
     </div>
   )
 }
 
-function Sidebar({ activeTab, onSelect, onLogout }) {
+function Sidebar({ activeTab, onSelect, onLogout, notifications, unreadCount }) {
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+
+  const toggleNotifications = () => {
+    const nextOpen = !isNotificationsOpen
+    setIsNotificationsOpen(nextOpen)
+    if (nextOpen && unreadCount > 0) {
+      markClientNotificationsRead('Finance Dashboard')
+    }
+  }
+
   return (
     <aside className="w-72 bg-white border-r border-slate-200 min-h-screen flex flex-col">
       <div className="px-8 py-6 border-b border-slate-200">
@@ -158,6 +189,57 @@ function Sidebar({ activeTab, onSelect, onLogout }) {
         })}
       </nav>
       <div className="px-6 py-6 border-t border-slate-200">
+        <div className="relative mb-4">
+          <button
+            type="button"
+            onClick={toggleNotifications}
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-3 text-sm font-semibold text-slate-700">
+                <BellIcon />
+                Notifications
+              </span>
+              {unreadCount > 0 ? (
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-blue-600 px-2 text-xs font-semibold text-white">
+                  {unreadCount}
+                </span>
+              ) : null}
+            </div>
+          </button>
+
+          {isNotificationsOpen ? (
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-900">Notifications</p>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                  onClick={() => setIsNotificationsOpen(false)}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {notifications.length > 0 ? notifications.map(item => (
+                  <div
+                    key={item.id}
+                    className={`rounded-xl border px-3 py-2 ${item.read ? 'border-slate-200 bg-white' : 'border-blue-200 bg-blue-50'}`}
+                  >
+                    <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                    <p className="mt-1 text-xs text-slate-600">{item.message}</p>
+                  </div>
+                )) : (
+                  <p className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+                    No notifications yet.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
         <div className="flex items-center gap-3">
           <div className="h-11 w-11 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold">
             FA
@@ -1618,7 +1700,7 @@ function InvoicesSection() {
               </div>
               <button
                 type="button"
-                className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
                 onClick={() => {
                   setIsCreateOpen(false)
                   resetCreateForm()
@@ -2008,7 +2090,7 @@ function InvoicesSection() {
                   <SendIcon /> Send Invoice
                 </button>
                 <button
-                  className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
                   onClick={() => setIsDetailOpen(false)}
                 >
                   <CloseIcon />
@@ -2212,7 +2294,7 @@ function InvoicesSection() {
               </div>
               <button
                 type="button"
-                className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+                className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
                 onClick={() => setIsLineItemOpen(false)}
               >
                 <CloseIcon />
@@ -2280,6 +2362,7 @@ function ExportsSection() {
   const [auditLogs, setAuditLogs] = useState([])
   const [invoiceItems, setInvoiceItems] = useState([])
   const [timeEntries, setTimeEntries] = useState([])
+  const [exportError, setExportError] = useState('')
 
   const [billingConfig, setBillingConfig] = useState({
     format: 'Excel',
@@ -2381,9 +2464,39 @@ function ExportsSection() {
     setAuditLogs(prev => [normalized, ...prev])
   }
 
+  const validateExportConfig = (config, label) => {
+    if (!config.dateFrom || !config.dateTo) {
+      setExportError(`Please enter From Date and To Date before generating the ${label}.`)
+      return false
+    }
+
+    if (config.dateTo < config.dateFrom) {
+      setExportError(`To Date cannot be earlier than From Date for the ${label}.`)
+      return false
+    }
+
+    setExportError('')
+    return true
+  }
+
+  const filterInvoicesByDate = config =>
+    invoiceItems.filter(invoice => {
+      if (!invoice.invoiceDate) return false
+      return invoice.invoiceDate >= config.dateFrom && invoice.invoiceDate <= config.dateTo
+    })
+
+  const filterTimeEntriesByDate = config =>
+    timeEntries.filter(entry => entry.date >= config.dateFrom && entry.date <= config.dateTo)
+
   const handleExportBilling = async () => {
+    if (!validateExportConfig(billingConfig, 'Billing Report')) return
+    const filteredInvoices = filterInvoicesByDate(billingConfig)
+    if (filteredInvoices.length === 0) {
+      setExportError('No billing data found for the selected date range.')
+      return
+    }
     const headers = ['Invoice Number', 'Client Name', 'Project', 'Date', 'Amount', 'GST', 'Total', 'Status']
-    const rows = invoiceItems.map(invoice => [
+    const rows = filteredInvoices.map(invoice => [
       invoice.invoiceNumber,
       invoice.clientName,
       invoice.groupBy,
@@ -2405,9 +2518,15 @@ function ExportsSection() {
   }
 
   const handleExportPayroll = async () => {
+    if (!validateExportConfig(payrollConfig, 'Payroll Report')) return
+    const filteredEntries = filterTimeEntriesByDate(payrollConfig)
+    if (filteredEntries.length === 0) {
+      setExportError('No payroll data found for the selected date range.')
+      return
+    }
     const headers = ['Employee Name', 'Role', 'Hours Worked', 'Hourly Rate', 'Gross Pay', 'Deductions', 'Net Pay']
     const payrollSummary = Array.from(
-      timeEntries.reduce((map, entry) => {
+      filteredEntries.reduce((map, entry) => {
         const key = entry.employeeName
         const current = map.get(key) || { employee: key, hours: 0, rate: Number(entry.rate || 0), amount: 0 }
         current.hours += Number(entry.hours || 0)
@@ -2438,6 +2557,12 @@ function ExportsSection() {
   }
 
   const handleExportGST = async () => {
+    if (!validateExportConfig(gstConfig, 'GST Report')) return
+    const filteredInvoices = filterInvoicesByDate(gstConfig)
+    if (filteredInvoices.length === 0) {
+      setExportError('No GST data found for the selected date range.')
+      return
+    }
     const headers = [
       'Invoice Number',
       'GSTIN',
@@ -2450,7 +2575,7 @@ function ExportsSection() {
       'Total Tax',
       'Invoice Total'
     ]
-    const rows = invoiceItems.map(invoice => [
+    const rows = filteredInvoices.map(invoice => [
       invoice.invoiceNumber,
       invoice.clientGSTIN,
       invoice.clientState,
@@ -2474,8 +2599,14 @@ function ExportsSection() {
   }
 
   const handleExportTimeEntries = async () => {
+    if (!validateExportConfig(timeEntriesConfig, 'Time Entries Report')) return
+    const filteredEntries = filterTimeEntriesByDate(timeEntriesConfig)
+    if (filteredEntries.length === 0) {
+      setExportError('No time entries found for the selected date range.')
+      return
+    }
     const headers = ['Date', 'Employee', 'Project', 'Task', 'Hours', 'Billable', 'Rate', 'Amount']
-    const rows = timeEntries.map(entry => [
+    const rows = filteredEntries.map(entry => [
       entry.date,
       entry.employeeName,
       entry.projectName,
@@ -2506,7 +2637,10 @@ function ExportsSection() {
     >
       <SegmentTabs
         activeTab={exportTab}
-        onSelect={setExportTab}
+        onSelect={tab => {
+          setExportTab(tab)
+          setExportError('')
+        }}
         tabs={[
           { id: 'billing', label: 'Billing Report' },
           { id: 'payroll', label: 'Payroll Report' },
@@ -2514,6 +2648,12 @@ function ExportsSection() {
           { id: 'time', label: 'Time Entries' }
         ]}
       />
+
+      {exportError ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+          {exportError}
+        </div>
+      ) : null}
 
       {exportTab === 'billing' ? (
         <Card className="p-6">
@@ -3074,7 +3214,7 @@ function ClientModal({ isEditing, values, onChange, onClose, onSubmit }) {
           </div>
           <button
             type="button"
-            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
             onClick={onClose}
           >
             <CloseIcon />
@@ -3183,7 +3323,7 @@ function ProjectModal({
           </div>
           <button
             type="button"
-            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
             onClick={onClose}
           >
             <CloseIcon />
@@ -3341,7 +3481,7 @@ function RateModal({
           </div>
           <button
             type="button"
-            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50"
+            className="h-9 w-9 rounded-full border border-slate-200 text-slate-500 hover:bg-slate-50 inline-flex items-center justify-center"
             onClick={onClose}
           >
             <CloseIcon />
@@ -3444,14 +3584,6 @@ function RateModal({
         </form>
       </div>
     </div>
-  )
-}
-
-function HelpButton() {
-  return (
-    <button className="fixed bottom-6 right-6 h-12 w-12 rounded-full bg-slate-900 text-white flex items-center justify-center shadow-lg">
-      ?
-    </button>
   )
 }
 
@@ -3580,6 +3712,27 @@ function LogoutIcon() {
       />
       <path
         d="M16 17l5-5-5-5M21 12H9"
+        stroke="#64748b"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function BellIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 0 0-5-5.9V4a1 1 0 1 0-2 0v1.1A6 6 0 0 0 6 11v3.2a2 2 0 0 1-.6 1.4L4 17h5"
+        stroke="#64748b"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 17a3 3 0 0 0 6 0"
         stroke="#64748b"
         strokeWidth="1.8"
         strokeLinecap="round"

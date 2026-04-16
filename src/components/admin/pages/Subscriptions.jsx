@@ -1,195 +1,122 @@
-import { TrendingUp, Users, DollarSign, Calendar } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
-import { StatusBadge } from '../StatusBadge';
+import { TrendingUp, Users, DollarSign, Calendar } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import { useEffect, useMemo, useState } from "react";
+import { StatusBadge } from "../StatusBadge";
+import { adminApi, formatCurrency } from "@/lib/adminTenantApi";
 
-const subscriptionPlans = [
-  { name: 'Basic', value: 425, color: '#3b82f6', price: 799, features: '10 users, 50GB storage' },
-  { name: 'Pro', value: 578, color: '#8b5cf6', price: 1299, features: '50 users, 500GB storage' },
-  { name: 'Enterprise', value: 200, color: '#06b6d4', price: 2499, features: 'Unlimited users, 5TB storage' },
-];
-
-const recentSubscriptions = [
-  { id: 1, client: 'Acme Corporation', plan: 'Enterprise', status: 'Active', users: 245, mrr: 2499, renewalDate: 'Mar 15, 2026', paymentStatus: 'Current' },
-  { id: 2, client: 'TechStart Inc', plan: 'Pro', status: 'Active', users: 87, mrr: 1299, renewalDate: 'Mar 20, 2026', paymentStatus: 'Current' },
-  { id: 3, client: 'Global Dynamics', plan: 'Basic', status: 'Active', users: 34, mrr: 799, renewalDate: 'Apr 01, 2026', paymentStatus: 'Current' },
-  { id: 4, client: 'Innovation Labs', plan: 'Enterprise', status: 'Active', users: 312, mrr: 2499, renewalDate: 'Mar 10, 2026', paymentStatus: 'Current' },
-  { id: 5, client: 'Digital Solutions', plan: 'Pro', status: 'Cancelled', users: 0, mrr: 0, renewalDate: '-', paymentStatus: 'Cancelled' },
-  { id: 6, client: 'Cloud Systems', plan: 'Basic', status: 'Active', users: 18, mrr: 799, renewalDate: 'Mar 25, 2026', paymentStatus: 'Current' },
-  { id: 7, client: 'DataFlow Inc', plan: 'Enterprise', status: 'Active', users: 189, mrr: 2499, renewalDate: 'Apr 05, 2026', paymentStatus: 'Current' },
-  { id: 8, client: 'NextGen Tech', plan: 'Pro', status: 'Trial', users: 25, mrr: 0, renewalDate: 'Feb 28, 2026', paymentStatus: 'Trial' },
-];
+const colors = ["#3b82f6", "#8b5cf6", "#06b6d4", "#14b8a6"];
 
 export function Subscriptions() {
-  const totalSubscriptions = subscriptionPlans.reduce((sum, plan) => sum + plan.value, 0);
-  const totalMRR = recentSubscriptions.filter(sub => sub.status === 'Active').reduce((sum, sub) => sum + sub.mrr, 0);
-  const activeSubscriptions = recentSubscriptions.filter(sub => sub.status === 'Active').length;
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [selectedSubscription, setSelectedSubscription] = useState(null);
+  const [showManageDialog, setShowManageDialog] = useState(false);
+  const [showHistoryDialog, setShowHistoryDialog] = useState(false);
+
+  const loadSubscriptions = async () => {
+    setSubscriptions(await adminApi.subscriptions());
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    adminApi.subscriptions().then((payload) => {
+      if (active) {
+        setSubscriptions(payload);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const distribution = useMemo(() => {
+    const counts = subscriptions.reduce((acc, item) => {
+      acc[item.plan] = (acc[item.plan] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts).map(([name, value], index) => ({ name, value, color: colors[index % colors.length] }));
+  }, [subscriptions]);
+
+  const totalSubscriptions = subscriptions.length;
+  const totalMRR = subscriptions.filter((sub) => sub.status === "Active").reduce((sum, sub) => sum + Number(sub.mrr || 0), 0);
+  const activeSubscriptions = subscriptions.filter((sub) => sub.status === "Active").length;
+
+  const saveSubscription = async () => {
+    await adminApi.updateSubscription(selectedSubscription);
+    await loadSubscriptions();
+    setShowManageDialog(false);
+  };
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div>
         <h1 className="text-3xl font-semibold text-gray-900">Subscriptions</h1>
         <p className="mt-2 text-gray-600">Manage platform subscriptions and plan tiers</p>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 bg-blue-50 rounded-lg">
-              <Users className="h-5 w-5 text-blue-600" />
-            </div>
-          </div>
-          <p className="text-sm text-gray-600 mb-1">Total Subscriptions</p>
-          <p className="text-2xl font-semibold text-gray-900">{totalSubscriptions}</p>
-        </div>
-
-        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 bg-green-50 rounded-lg">
-              <TrendingUp className="h-5 w-5 text-green-600" />
-            </div>
-          </div>
-          <p className="text-sm text-gray-600 mb-1">Active Subscriptions</p>
-          <p className="text-2xl font-semibold text-gray-900">{activeSubscriptions}</p>
-        </div>
-
-        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 bg-purple-50 rounded-lg">
-              <DollarSign className="h-5 w-5 text-purple-600" />
-            </div>
-          </div>
-          <p className="text-sm text-gray-600 mb-1">Monthly Recurring Revenue</p>
-          <p className="text-2xl font-semibold text-gray-900">${totalMRR.toLocaleString()}</p>
-        </div>
-
-        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 bg-cyan-50 rounded-lg">
-              <Calendar className="h-5 w-5 text-cyan-600" />
-            </div>
-          </div>
-          <p className="text-sm text-gray-600 mb-1">Annual Recurring Revenue</p>
-          <p className="text-2xl font-semibold text-gray-900">${(totalMRR * 12).toLocaleString()}</p>
-        </div>
+        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100"><div className="mb-4 rounded-lg bg-blue-50 p-3 w-fit"><Users className="h-5 w-5 text-blue-600" /></div><p className="text-sm text-gray-600 mb-1">Total Subscriptions</p><p className="text-2xl font-semibold text-gray-900">{totalSubscriptions}</p></div>
+        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100"><div className="mb-4 rounded-lg bg-green-50 p-3 w-fit"><TrendingUp className="h-5 w-5 text-green-600" /></div><p className="text-sm text-gray-600 mb-1">Active Subscriptions</p><p className="text-2xl font-semibold text-gray-900">{activeSubscriptions}</p></div>
+        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100"><div className="mb-4 rounded-lg bg-purple-50 p-3 w-fit"><DollarSign className="h-5 w-5 text-purple-600" /></div><p className="text-sm text-gray-600 mb-1">Monthly Recurring Revenue</p><p className="text-2xl font-semibold text-gray-900">{formatCurrency(totalMRR)}</p></div>
+        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100"><div className="mb-4 rounded-lg bg-cyan-50 p-3 w-fit"><Calendar className="h-5 w-5 text-cyan-600" /></div><p className="text-sm text-gray-600 mb-1">Annual Recurring Revenue</p><p className="text-2xl font-semibold text-gray-900">{formatCurrency(totalMRR * 12)}</p></div>
       </div>
 
-      {/* Plans Distribution */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Pie Chart */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">Subscription Distribution</h3>
-            <p className="text-sm text-gray-600">By plan type</p>
-          </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={subscriptionPlans}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {subscriptionPlans.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Plan Details */}
-        <div className="rounded-xl bg-white p-6 shadow-sm border border-gray-100">
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">Plan Details</h3>
-            <p className="text-sm text-gray-600">Available subscription tiers</p>
-          </div>
-          <div className="space-y-4">
-            {subscriptionPlans.map((plan) => (
-              <div key={plan.name} className="p-4 rounded-lg border border-gray-200 hover:border-blue-200 hover:bg-blue-50/50 transition-all">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-3">
-                    <div className="h-4 w-4 rounded-full" style={{ backgroundColor: plan.color }} />
-                    <h4 className="font-semibold text-gray-900">{plan.name}</h4>
-                  </div>
-                  <p className="text-lg font-semibold text-gray-900">${plan.price}/mo</p>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600">{plan.features}</p>
-                  <p className="text-sm font-medium text-gray-900">{plan.value} subscribers</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="mb-6"><h3 className="text-lg font-semibold text-gray-900">Subscription Distribution</h3><p className="text-sm text-gray-600">By plan type</p></div>
+          <ResponsiveContainer width="100%" height={300}><PieChart><Pie data={distribution} cx="50%" cy="50%" labelLine={false} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} outerRadius={100} dataKey="value">{distribution.map((entry, index) => <Cell key={`${entry.name}-${index}`} fill={entry.color} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
         </div>
       </div>
 
-      {/* Subscriptions Table */}
       <div className="rounded-xl bg-white shadow-sm border border-gray-100">
-        <div className="border-b border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900">All Subscriptions</h3>
-          <p className="text-sm text-gray-600">Detailed subscription overview</p>
-        </div>
+        <div className="border-b border-gray-100 p-6"><h3 className="text-lg font-semibold text-gray-900">All Subscriptions</h3><p className="text-sm text-gray-600">Detailed subscription overview</p></div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plan</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Users</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MRR</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Renewal Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
+            <thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Client</th><th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Plan</th><th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th><th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Users</th><th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">MRR</th><th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Renewal Date</th><th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Payment Status</th><th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Actions</th></tr></thead>
             <tbody className="divide-y divide-gray-100">
-              {recentSubscriptions.map((subscription) => (
+              {subscriptions.map((subscription) => (
                 <tr key={subscription.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className="h-10 w-10 flex-shrink-0">
-                        <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold">
-                          {subscription.client.charAt(0)}
-                        </div>
-                      </div>
-                      <div className="ml-4">
-                        <div className="font-medium text-gray-900">{subscription.client}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm font-medium text-gray-900">{subscription.plan}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <StatusBadge status={subscription.status} variant="compact" />
-                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{subscription.client}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{subscription.plan}</td>
+                  <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={subscription.status} variant="compact" /></td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{subscription.users}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                    ${subscription.mrr.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{subscription.renewalDate}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <StatusBadge status={subscription.paymentStatus} variant="compact" />
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <button className="text-blue-600 hover:text-blue-700 font-medium mr-3 transition-colors">Manage</button>
-                    <button className="text-gray-600 hover:text-gray-700 font-medium transition-colors">History</button>
-                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">{formatCurrency(subscription.mrr)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{subscription.renewalDate || "-"}</td>
+                  <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={subscription.paymentStatus} variant="compact" /></td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm"><button onClick={() => { setSelectedSubscription({ ...subscription }); setShowManageDialog(true); }} className="text-blue-600 hover:text-blue-700 font-medium mr-3 transition-colors">Manage</button><button onClick={() => { setSelectedSubscription(subscription); setShowHistoryDialog(true); }} className="text-gray-600 hover:text-gray-700 font-medium transition-colors">History</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      {showManageDialog && selectedSubscription ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowManageDialog(false)} />
+          <div className="relative w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">Manage Subscription</h2>
+            <div className="space-y-4">
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Plan</label><select value={selectedSubscription.plan} onChange={(e) => setSelectedSubscription((prev) => ({ ...prev, plan: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"><option>Starter</option><option>Professional</option><option>Enterprise</option></select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Status</label><select value={selectedSubscription.status} onChange={(e) => setSelectedSubscription((prev) => ({ ...prev, status: e.target.value }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"><option>Active</option><option>Trial</option><option>Inactive</option></select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Users</label><input type="number" value={selectedSubscription.users} onChange={(e) => setSelectedSubscription((prev) => ({ ...prev, users: Number(e.target.value || 0) }))} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></div>
+              <div className="flex gap-3 pt-4"><button onClick={() => setShowManageDialog(false)} className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700">Cancel</button><button onClick={saveSubscription} className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">Save</button></div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showHistoryDialog && selectedSubscription ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowHistoryDialog(false)} />
+          <div className="relative w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">Subscription History</h2>
+            <div className="space-y-3">{(selectedSubscription.history || []).map((entry, index) => <div key={`${entry}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">{entry}</div>)}</div>
+            <button onClick={() => setShowHistoryDialog(false)} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white">Close</button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
-

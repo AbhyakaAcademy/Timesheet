@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { getRoleHome, getSession } from "@/lib/auth";
@@ -8,24 +8,25 @@ import { getRoleHome, getSession } from "@/lib/auth";
 export default function RouteGuard({ allowedRoles = [], children }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [ready, setReady] = useState(false);
+  const session = useMemo(() => getSession(), []);
+
+  const hasAccess =
+    Boolean(session.token && session.role) &&
+    (allowedRoles.length === 0 || allowedRoles.includes(session.role));
 
   useEffect(() => {
-    const { token, role } = getSession();
-    if (!token || !role) {
+    if (!session.token || !session.role) {
       router.replace("/login");
       return;
     }
 
-    if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
-      router.replace(getRoleHome(role));
+    if (allowedRoles.length > 0 && !allowedRoles.includes(session.role)) {
+      router.replace(getRoleHome(session.role));
       return;
     }
+  }, [allowedRoles, pathname, router, session]);
 
-    setReady(true);
-  }, [allowedRoles, pathname, router]);
-
-  if (!ready) {
+  if (!hasAccess) {
     return null;
   }
 

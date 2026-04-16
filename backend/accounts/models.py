@@ -16,3 +16,17 @@ class User(AbstractUser):
         choices=UserRole.choices,
         default=UserRole.EMPLOYEE,
     )
+    organization = models.ForeignKey(
+        "tenants.TenantOrganization",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="users",
+    )
+    department = models.ForeignKey(
+        "tenants.Department",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="users",
+    )

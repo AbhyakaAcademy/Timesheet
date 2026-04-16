@@ -46,6 +46,23 @@ def manager_has_employee(manager, employee_id):
     return TeamMembership.objects.filter(manager=manager, employee_id=employee_id).exists()
 
 
+def employee_display_name(employee):
+    return employee.get_full_name().strip() or employee.username
+
+
+def notify_employee_managers(employee, title, message):
+    managers = [
+        member.manager
+        for member in TeamMembership.objects.select_related("manager").filter(employee=employee)
+    ]
+    for manager in managers:
+        Notification.objects.create(
+            recipient=manager,
+            title=title,
+            message=message,
+        )
+
+
 class EmployeeDashboardSummaryView(APIView):
     permission_classes = [IsAuthenticated, IsEmployee]
 
@@ -107,6 +124,11 @@ class PunchInView(APIView):
             start_time=timezone.now(),
             note=serializer.validated_data.get("note", ""),
         )
+        notify_employee_managers(
+            request.user,
+            "Employee punched in",
+            f"{employee_display_name(request.user)} punched in for {project.name}.",
+        )
         return Response(TimeEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
 
 
@@ -124,6 +146,14 @@ class PunchOutView(APIView):
             entry.note = serializer.validated_data["note"]
         entry.calculate_duration()
         entry.save(update_fields=["end_time", "note", "duration_minutes", "updated_at"])
+        notify_employee_managers(
+            request.user,
+            "Employee punched out",
+            (
+                f"{employee_display_name(request.user)} punched out from {entry.project.name} "
+                f"after {entry.duration_minutes} minutes."
+            ),
+        )
         return Response(TimeEntrySerializer(entry).data)
 
 
@@ -144,6 +174,14 @@ class ManualTimeEntryView(APIView):
         )
         entry.calculate_duration()
         entry.save(update_fields=["duration_minutes", "updated_at"])
+        notify_employee_managers(
+            request.user,
+            "Manual time entry added",
+            (
+                f"{employee_display_name(request.user)} added a manual time entry for "
+                f"{project.name} ({entry.duration_minutes} minutes)."
+            ),
+        )
         return Response(TimeEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
 
 
@@ -212,14 +250,29 @@ class TimesheetLineDetailView(APIView):
             return error
         serializer = TimesheetLineSerializer(line, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        updated_line = serializer.save()
+        notify_employee_managers(
+            request.user,
+            "Timesheet entry updated",
+            (
+                f"{employee_display_name(request.user)} updated a timesheet entry for "
+                f"{updated_line.project.name} on {updated_line.date}."
+            ),
+        )
         return Response(serializer.data)
 
     def delete(self, request, line_id):
         line, error = self.get_object(request, line_id)
         if error:
             return error
+        project_name = line.project.name
+        line_date = line.date
         line.delete()
+        notify_employee_managers(
+            request.user,
+            "Timesheet entry deleted",
+            f"{employee_display_name(request.user)} deleted a timesheet entry for {project_name} on {line_date}.",
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -271,6 +324,14 @@ class AddTimesheetLineView(APIView):
             shift=payload.get("shift"),
             time_entry_id=payload.get("time_entry_id"),
         )
+        notify_employee_managers(
+            request.user,
+            "Timesheet entry added",
+            (
+                f"{employee_display_name(request.user)} added {line.hours} hours "
+                f"for {line.project.name} on {line.date}."
+            ),
+        )
         return Response(TimesheetLineSerializer(line).data, status=status.HTTP_201_CREATED)
 
 
@@ -298,16 +359,11 @@ class SubmitTimesheetView(APIView):
         if not timesheet.lines.exists():
             return Response({"detail": "Add at least one timesheet line before submit."}, status=status.HTTP_400_BAD_REQUEST)
         timesheet.submit()
-        managers = [
-            member.manager
-            for member in TeamMembership.objects.select_related("manager").filter(employee=request.user)
-        ]
-        for manager in managers:
-            Notification.objects.create(
-                recipient=manager,
-                title="Timesheet submitted",
-                message=f"{request.user.username} submitted timesheet for week {timesheet.week_start}.",
-            )
+        notify_employee_managers(
+            request.user,
+            "Timesheet submitted",
+            f"{employee_display_name(request.user)} submitted timesheet for week {timesheet.week_start}.",
+        )
         return Response(TimesheetSerializer(timesheet).data)
 
 
@@ -348,6 +404,39 @@ class ManagerTimesheetDetailView(APIView):
         return Response(TimesheetSerializer(timesheet).data)
 
 
+class ManagerTimesheetLineDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+
+    def get_object(self, request, line_id):
+        line = get_object_or_404(TimesheetLine.objects.select_related("timesheet", "timesheet__employee"), id=line_id)
+        if request.user.role == UserRole.MANAGER and not manager_has_employee(request.user, line.timesheet.employee_id):
+            return None, Response({"detail": "You do not manage this employee."}, status=status.HTTP_403_FORBIDDEN)
+        if line.timesheet.status not in {
+            TimesheetStatus.SUBMITTED,
+            TimesheetStatus.APPROVED,
+            TimesheetStatus.REJECTED,
+        }:
+            return None, Response(
+                {
+                    "detail": (
+                        "Managers can edit entries only while the timesheet is in "
+                        "SUBMITTED, APPROVED, or REJECTED status."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return line, None
+
+    def patch(self, request, line_id):
+        line, error = self.get_object(request, line_id)
+        if error:
+            return error
+        serializer = TimesheetLineSerializer(line, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
 class ManagerTimesheetActionView(APIView):
     permission_classes = [IsAuthenticated, IsManagerOrAdmin]
     action = None
@@ -358,9 +447,13 @@ class ManagerTimesheetActionView(APIView):
         timesheet = get_object_or_404(Timesheet, id=timesheet_id)
         if request.user.role == UserRole.MANAGER and not manager_has_employee(request.user, timesheet.employee_id):
             return Response({"detail": "You do not manage this employee."}, status=status.HTTP_403_FORBIDDEN)
-        if timesheet.status != TimesheetStatus.SUBMITTED:
+        if timesheet.status not in {
+            TimesheetStatus.SUBMITTED,
+            TimesheetStatus.APPROVED,
+            TimesheetStatus.REJECTED,
+        }:
             return Response(
-                {"detail": "Manager action is allowed only for SUBMITTED timesheets."},
+                {"detail": "Manager action is allowed only for SUBMITTED, APPROVED, or REJECTED timesheets."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         new_status = TimesheetStatus.APPROVED if self.action == ApprovalAction.APPROVED else TimesheetStatus.REJECTED
@@ -375,7 +468,10 @@ class ManagerTimesheetActionView(APIView):
         Notification.objects.create(
             recipient=timesheet.employee,
             title=f"Timesheet {new_status.title()}",
-            message=f"Your timesheet for week {timesheet.week_start} was {new_status.lower()}.",
+            message=(
+                f"Your manager {request.user.username} {new_status.lower()} your timesheet "
+                f"for week {timesheet.week_start}."
+            ),
         )
         return Response(TimesheetSerializer(timesheet).data)
 

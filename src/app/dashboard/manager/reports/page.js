@@ -6,6 +6,7 @@ import DashboardFrame from "@/components/dashboard/DashboardFrame";
 import StatCard from "@/components/dashboard/StatCard";
 import TeamReportsCharts from "@/components/dashboard/TeamReportsCharts";
 import { apiFetch } from "@/lib/api";
+import { getManagerDashboardSlice, setManagerDashboardSlice } from "@/lib/managerDashboardStorage";
 
 function TeamMembersIcon() {
   return (
@@ -46,16 +47,18 @@ function CheckIcon() {
 }
 
 export default function ReportsPage() {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !getManagerDashboardSlice("reportsDatasets", null));
   const [errorMessage, setErrorMessage] = useState("");
-  const [pendingCount, setPendingCount] = useState(0);
-  const [datasets, setDatasets] = useState({
-    utilization: [],
-    statusSplit: [],
-    projectDistribution: [],
-    teamPerformance: [],
-    maxHours: 60,
-  });
+  const [pendingCount, setPendingCount] = useState(() => getManagerDashboardSlice("reportsPendingCount", 0));
+  const [datasets, setDatasets] = useState(() =>
+    getManagerDashboardSlice("reportsDatasets", {
+      utilization: [],
+      statusSplit: [],
+      projectDistribution: [],
+      teamPerformance: [],
+      maxHours: 60,
+    })
+  );
 
   useEffect(() => {
     (async () => {
@@ -74,7 +77,9 @@ export default function ReportsPage() {
           { label: "Rejected", value: (rejected || []).length, color: "#dc2626", textClass: "text-red-600" },
         ];
 
-        setPendingCount((pending || []).length);
+        const nextPendingCount = (pending || []).length;
+        setPendingCount(nextPendingCount);
+        setManagerDashboardSlice("reportsPendingCount", nextPendingCount);
 
         const all = [
           ...(pending || []).map((x) => ({ ...x, statusLabel: "Pending" })),
@@ -82,17 +87,50 @@ export default function ReportsPage() {
           ...(rejected || []).map((x) => ({ ...x, statusLabel: "Rejected" })),
         ];
 
-        const utilization = all.map((item) => ({
-          name: item.employee_name || item.employee_username || "Employee",
-          hours: Number(item.total_hours || 0),
+        const employeeMap = new Map();
+        all.forEach((item) => {
+          const employeeId = item.employee || item.employee_username || item.id;
+          const employeeName = item.employee_name || item.employee_username || "Employee";
+          const hours = Number(item.total_hours || 0);
+          const existing = employeeMap.get(employeeId) || {
+            employee: employeeName,
+            totalHours: 0,
+            timesheetCount: 0,
+            pendingCount: 0,
+            approvedCount: 0,
+            rejectedCount: 0,
+          };
+
+          existing.totalHours += hours;
+          existing.timesheetCount += 1;
+          if (item.statusLabel === "Approved") existing.approvedCount += 1;
+          if (item.statusLabel === "Rejected") existing.rejectedCount += 1;
+          if (item.statusLabel === "Pending") existing.pendingCount += 1;
+          employeeMap.set(employeeId, existing);
+        });
+
+        const employeeSummary = [...employeeMap.values()].sort((a, b) => b.totalHours - a.totalHours);
+
+        const utilization = employeeSummary.map((item) => ({
+          name: item.employee,
+          hours: Number(item.totalHours.toFixed(2)),
         }));
 
-        const teamPerformance = all.map((item) => ({
-          employee: item.employee_name || item.employee_username || "Employee",
-          totalHours: Number(item.total_hours || 0),
-          timesheets: "1 submitted",
-          status: item.statusLabel,
-        }));
+        const teamPerformance = employeeSummary.map((item) => {
+          let status = "Pending";
+          if (item.pendingCount === 0 && item.rejectedCount === 0 && item.approvedCount > 0) {
+            status = "Approved";
+          } else if (item.pendingCount === 0 && item.rejectedCount > 0) {
+            status = "Rejected";
+          }
+
+          return {
+            employee: item.employee,
+            totalHours: Number(item.totalHours.toFixed(2)),
+            timesheets: `${item.timesheetCount} submitted`,
+            status,
+          };
+        });
 
         const details = await Promise.all(all.map((item) => apiFetch(`/manager/timesheets/${item.id}`)));
         const projectMap = new Map();
@@ -108,9 +146,12 @@ export default function ReportsPage() {
           .map(([project, hours]) => ({ project, hours: Math.round(hours) }))
           .sort((a, b) => b.hours - a.hours);
 
-        const maxHours = Math.max(60, ...utilization.map((item) => item.hours), 40);
+        const maxHoursValue = Math.max(...utilization.map((item) => item.hours), 8);
+        const maxHours = Math.ceil(maxHoursValue / 5) * 5;
 
-        setDatasets({ utilization, statusSplit, projectDistribution, teamPerformance, maxHours });
+        const nextDatasets = { utilization, statusSplit, projectDistribution, teamPerformance, maxHours };
+        setDatasets(nextDatasets);
+        setManagerDashboardSlice("reportsDatasets", nextDatasets);
       } catch (error) {
         setErrorMessage(error.message || "Failed to load reports.");
       } finally {

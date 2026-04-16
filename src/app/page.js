@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { clearSession } from "@/lib/auth";
 import {
   Clock,
   Timer,
@@ -43,7 +44,6 @@ const basePlans = [
     priceMin: 349,
     priceMax: 599,
     description: "For growing organizations",
-    highlighted: true,
     features: ["Up to 100 users", "Advanced analytics", "Custom workflows", "Priority support", "API access", "Single Sign-On"]
   },
   {
@@ -223,10 +223,16 @@ export default function LandingPage() {
               <HelpCircle className="w-5 h-5" />
               Help
             </button>
-            <Link href="/login" className="px-3 py-2 rounded-xl text-[16px] text-slate-700 hover:text-slate-900 transition-colors">Log In</Link>
+            <Link
+              href="/login"
+              onClick={() => clearSession()}
+              className="px-3 py-2 rounded-xl text-[16px] text-slate-700 hover:text-slate-900 transition-colors"
+            >
+              Log In
+            </Link>
             <Link
               href="/signup"
-              className="px-8 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-[20px] leading-none rounded-2xl shadow-lg"
+              className="px-6 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-[17px] leading-none rounded-xl shadow-lg"
             >
               Sign Up Free
             </Link>
@@ -407,21 +413,18 @@ export default function LandingPage() {
 
           <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
             {basePlans.map((plan, i) => (
-              <div key={i} className={`bg-white rounded-2xl p-8 ${plan.highlighted ? "ring-2 ring-indigo-600 shadow-2xl scale-105" : "shadow-lg"}`}>
-                {plan.highlighted && (
-                  <div className="text-center mb-4">
-                    <span className="inline-block px-4 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm rounded-full">Most Popular</span>
-                  </div>
-                )}
-
+              <div
+                key={i}
+                className="bg-white rounded-2xl p-8 shadow-lg border-2 border-transparent transition-all duration-200 hover:border-indigo-600 hover:shadow-2xl hover:-translate-y-1"
+              >
                 <h3 className="text-2xl font-bold text-gray-900 mb-2">{plan.name}</h3>
                 <p className="text-gray-600 mb-6">{plan.description}</p>
 
                 <div className="mb-8">
                   {plan.custom ? (
-                    <p className="text-4xl font-bold text-gray-900">Contact us</p>
+                    <p className="text-3xl font-bold text-gray-900">Contact us</p>
                   ) : (
-                    <p className="text-4xl font-bold text-gray-900">
+                    <p className="text-3xl font-bold text-gray-900">
                       {regionMeta[region].symbol}
                       {Math.round(plan.priceMin * regionMeta[region].multiplier).toLocaleString(regionMeta[region].locale)}-
                       {Math.round(plan.priceMax * regionMeta[region].multiplier).toLocaleString(regionMeta[region].locale)}
@@ -440,7 +443,7 @@ export default function LandingPage() {
                 </ul>
 
                 <Link href="/subscription">
-                  <button className={`w-full py-3 rounded-lg font-semibold ${plan.highlighted ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg hover:shadow-xl" : "bg-gray-100 text-gray-900 hover:bg-gray-200"}`}>
+                  <button className="w-full py-3 rounded-lg font-semibold bg-gray-100 text-gray-900 transition-all hover:bg-gradient-to-r hover:from-indigo-600 hover:to-purple-600 hover:text-white hover:shadow-xl">
                     Get Started
                   </button>
                 </Link>

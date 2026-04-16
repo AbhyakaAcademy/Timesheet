@@ -1,4 +1,4 @@
-import { getApiBaseUrl, getSession } from "@/lib/auth";
+import { clearSession, getApiBaseUrl, getSession } from "@/lib/auth";
 
 export async function apiFetch(path, options = {}) {
   const { token } = getSession();
@@ -25,6 +25,18 @@ export async function apiFetch(path, options = {}) {
 
   if (!response.ok) {
     const message = data?.error?.message || data?.detail || "Request failed.";
+    const isInvalidToken =
+      response.status === 401 &&
+      typeof message === "string" &&
+      message.toLowerCase().includes("token");
+
+    if (isInvalidToken) {
+      clearSession();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+    }
+
     throw new Error(message);
   }
 

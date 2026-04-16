@@ -7,10 +7,48 @@ import { MyTimeCard } from "./components/MyTimeCard";
 import { TimerCard } from "./components/TimerCard";
 import { TimesheetsTable } from "./components/TimesheetsTable";
 import { apiFetch } from "@/lib/api";
+import HelpButton from "@/components/support/HelpButton";
+import { getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
+
+const TENANT_DASHBOARD_STORAGE_KEY = "tenantAdminDashboardState";
+
+const parseLocalDateValue = (value) => {
+  if (!value) return new Date("");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+  return new Date(value);
+};
+
+const getLocalDateValue = (value = new Date()) => {
+  const date = value instanceof Date ? value : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 const formatDisplayDate = (isoDate) => {
-  const d = new Date(isoDate);
+  const d = parseLocalDateValue(isoDate);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
+
+const formatDisplayTime = (isoDate) => {
+  if (!isoDate) return "";
+  const d = new Date(isoDate);
+  return d.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+};
+
+const getLineDurationSeconds = (line) => {
+  const exactSeconds = Number(line?.time_entry_detail?.duration_seconds || 0);
+  if (exactSeconds > 0) return exactSeconds;
+  return Math.max(Math.round(Number(line?.hours || 0) * 3600), 0);
 };
 
 const toRelative = (iso) => {
@@ -36,6 +74,24 @@ export default function EmployeeDashboardPage() {
   const [timesheetHistory, setTimesheetHistory] = useState([]);
   const [summary, setSummary] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [supportNotifications, setSupportNotifications] = useState(() => getClientNotifications());
+  const [maxDailyHours, setMaxDailyHours] = useState(12);
+
+  useEffect(() => {
+    const storedState = window.localStorage.getItem(TENANT_DASHBOARD_STORAGE_KEY);
+    if (!storedState) return;
+
+    try {
+      const parsed = JSON.parse(storedState);
+      const rawMaxHours = parsed?.general?.maxHours;
+      const parsedHours = Number.parseInt(String(rawMaxHours || ""), 10);
+      if (!Number.isNaN(parsedHours) && parsedHours > 0) {
+        setMaxDailyHours(parsedHours);
+      }
+    } catch {
+      // Ignore malformed local tenant settings.
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     setErrorMessage("");
@@ -76,6 +132,8 @@ export default function EmployeeDashboardPage() {
     })();
   }, [loadData]);
 
+  useEffect(() => subscribeToClientNotifications(setSupportNotifications), []);
+
   const rows = useMemo(() => {
     if (!timesheet) return [];
     return (timesheet.lines || []).map((line) => ({
@@ -84,6 +142,7 @@ export default function EmployeeDashboardPage() {
       projectId: line.project.id,
       projectName: line.project.name,
       hours: Number(line.hours),
+      durationSeconds: getLineDurationSeconds(line),
       shift: line.shift,
       description: line.description,
       status: timesheet.status,
@@ -96,6 +155,18 @@ export default function EmployeeDashboardPage() {
     return all.filter((sheet) => sheet.id !== timesheet.id);
   }, [timesheetHistory, timesheet]);
 
+  const currentWeekSheets = useMemo(() => {
+    const currentWeekStart = timesheet?.week_start;
+    if (!currentWeekStart) {
+      return timesheet ? [timesheet] : [];
+    }
+
+    return [
+      ...(timesheet ? [timesheet] : []),
+      ...(timesheetHistory || []).filter((sheet) => sheet.week_start === currentWeekStart && sheet.id !== timesheet?.id),
+    ];
+  }, [timesheet, timesheetHistory]);
+
   const activityEntries = useMemo(() => {
     if (!timesheet) return [];
     return (timesheet.lines || [])
@@ -106,36 +177,82 @@ export default function EmployeeDashboardPage() {
         id: String(line.id),
         project: line.project.name,
         description: line.description || "",
-        start: "Logged",
-        end: formatDisplayDate(line.date),
-        durationMinutes: Math.round(Number(line.hours) * 60),
+        start: line.time_entry_detail?.start_time ? formatDisplayTime(line.time_entry_detail.start_time) : "Logged",
+        end: line.time_entry_detail?.end_time ? formatDisplayTime(line.time_entry_detail.end_time) : formatDisplayDate(line.date),
+        durationMinutes: getLineDurationSeconds(line) / 60,
         dateLabel: formatDisplayDate(line.date),
       }));
   }, [timesheet]);
 
-  const todayHours = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+  const todaySeconds = useMemo(() => {
+    const today = getLocalDateValue();
     return (timesheet?.lines || [])
       .filter((line) => line.date === today)
-      .reduce((sum, line) => sum + Number(line.hours), 0);
+      .reduce((sum, line) => sum + getLineDurationSeconds(line), 0);
   }, [timesheet]);
 
-  const monthHours = useMemo(() => {
+  const weekSeconds = useMemo(() => {
+    return currentWeekSheets.reduce(
+      (sheetSum, sheet) =>
+        sheetSum + (sheet.lines || []).reduce((lineSum, line) => lineSum + getLineDurationSeconds(line), 0),
+      0
+    );
+  }, [currentWeekSheets]);
+
+  const monthSeconds = useMemo(() => {
     const now = new Date();
-    return (timesheet?.lines || []).reduce((sum, line) => {
-      const d = new Date(line.date);
-      if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
-        return sum + Number(line.hours);
-      }
-      return sum;
-    }, 0);
-  }, [timesheet]);
+    const allSheets = [
+      ...(timesheet ? [timesheet] : []),
+      ...(timesheetHistory || []).filter((sheet) => sheet.id !== timesheet?.id),
+    ];
+
+    return allSheets.reduce(
+      (sheetSum, sheet) =>
+        sheetSum +
+        (sheet.lines || []).reduce((lineSum, line) => {
+          const d = new Date(line.date);
+          if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) {
+            return lineSum + getLineDurationSeconds(line);
+          }
+          return lineSum;
+        }, 0),
+      0
+    );
+  }, [timesheet, timesheetHistory]);
 
   const userDisplayName = useMemo(() => {
     if (!me) return "Employee";
     const fullName = `${me.first_name || ""} ${me.last_name || ""}`.trim();
     return fullName || me.username || "Employee";
   }, [me]);
+
+  const employeeSupportNotifications = useMemo(
+    () =>
+      supportNotifications
+        .filter((item) => item.clientName === userDisplayName)
+        .map((item) => ({
+          id: String(item.id),
+          title: item.title,
+          message: item.message,
+          time: toRelative(item.time),
+          is_read: item.read,
+        })),
+    [supportNotifications, userDisplayName]
+  );
+
+  const combinedNotifications = useMemo(() => {
+    const seenIds = new Set();
+    return [...employeeSupportNotifications, ...notifications].filter((item) => {
+      if (seenIds.has(item.id)) return false;
+      seenIds.add(item.id);
+      return true;
+    });
+  }, [employeeSupportNotifications, notifications]);
+
+  const totalNotificationCount = useMemo(
+    () => combinedNotifications.filter((item) => !item.is_read).length,
+    [combinedNotifications]
+  );
 
   const addTimesheetLine = async (payload) => {
     if (!timesheet?.id) throw new Error("Timesheet not available.");
@@ -163,6 +280,19 @@ export default function EmployeeDashboardPage() {
   };
 
   const handlePunchOut = async (entryId, { note }) => {
+    if (summary?.active_entry?.start_time) {
+      const activeSeconds = Math.max(
+        Math.round((Date.now() - new Date(summary.active_entry.start_time).getTime()) / 1000),
+        0
+      );
+      const nextTotalHours = (todaySeconds + activeSeconds) / 3600;
+
+      if (nextTotalHours > maxDailyHours) {
+        setErrorMessage(`Daily limit reached. You cannot log more than ${maxDailyHours} hours in a day.`);
+        return;
+      }
+    }
+
     setBusy(true);
     try {
       const entry = await apiFetch(`/time-entries/${entryId}/punch-out`, {
@@ -175,12 +305,13 @@ export default function EmployeeDashboardPage() {
       await refreshData();
 
       try {
-        const hours = Math.max(Number(entry.duration_minutes || 0) / 60, 0.25);
+        const durationSeconds = Number(entry.duration_seconds || 0);
+        const hours = durationSeconds > 0 ? durationSeconds / 3600 : Number(entry.duration_minutes || 0) / 60;
         await addTimesheetLine({
-          date: new Date(entry.end_time || new Date().toISOString()).toISOString().slice(0, 10),
+          date: getLocalDateValue(entry.end_time || new Date()),
           project_id: entry.project.id,
           description: entry.note || "Punch entry",
-          hours: Number(hours.toFixed(2)),
+          hours: Math.max(Number(hours.toFixed(2)), 0.01),
           shift: "DAY",
           time_entry_id: entry.id,
         });
@@ -193,6 +324,14 @@ export default function EmployeeDashboardPage() {
   };
 
   const handleManualEntry = async ({ projectId, note, startIso, endIso }) => {
+    const durationHours = (new Date(endIso).getTime() - new Date(startIso).getTime()) / 3600000;
+    const todayDate = getLocalDateValue();
+
+    if (getLocalDateValue(startIso) === todayDate && todaySeconds / 3600 + durationHours > maxDailyHours) {
+      setErrorMessage(`Daily limit reached. You cannot log more than ${maxDailyHours} hours in a day.`);
+      return;
+    }
+
     setBusy(true);
     try {
       const entry = await apiFetch("/time-entries/manual", {
@@ -205,12 +344,13 @@ export default function EmployeeDashboardPage() {
         }),
       });
 
-      const hours = Math.max(Number(entry.duration_minutes || 0) / 60, 0.25);
+      const durationSeconds = Number(entry.duration_seconds || 0);
+      const hours = durationSeconds > 0 ? durationSeconds / 3600 : Number(entry.duration_minutes || 0) / 60;
       await addTimesheetLine({
-        date: new Date(startIso).toISOString().slice(0, 10),
+        date: getLocalDateValue(startIso),
         project_id: projectId,
         description: note || "Manual entry",
-        hours: Number(hours.toFixed(2)),
+        hours: Math.max(Number(hours.toFixed(2)), 0.01),
         shift: "DAY",
         time_entry_id: entry.id,
       });
@@ -267,6 +407,7 @@ export default function EmployeeDashboardPage() {
         method: "POST",
         body: JSON.stringify({}),
       });
+      markClientNotificationsRead(userDisplayName);
       await refreshData();
     } catch {
       // no-op
@@ -280,9 +421,9 @@ export default function EmployeeDashboardPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
       <DashboardHeader
-        notificationCount={summary?.unread_notifications || 0}
+        notificationCount={totalNotificationCount}
         onNotificationClick={handleMarkNotificationsRead}
-        notifications={notifications}
+        notifications={combinedNotifications}
         initialName={userDisplayName}
         role={me?.role || "employee"}
       />
@@ -290,12 +431,14 @@ export default function EmployeeDashboardPage() {
       <main className="max-w-7xl mx-auto p-6 space-y-6">
         {errorMessage ? <p className="text-sm text-rose-600">{errorMessage}</p> : null}
 
-        <MyTimeCard todayHours={todayHours} weekHours={Number(summary?.weekly_hours || 0)} monthHours={monthHours} />
+        <MyTimeCard todaySeconds={todaySeconds} weekSeconds={weekSeconds} monthSeconds={monthSeconds} />
 
         <TimerCard
           projects={projects}
           activeEntry={summary?.active_entry || null}
           entries={activityEntries}
+          todayHours={todaySeconds / 3600}
+          maxDailyHours={maxDailyHours}
           onPunchIn={handlePunchIn}
           onPunchOut={handlePunchOut}
           onManualEntry={handleManualEntry}
@@ -309,10 +452,14 @@ export default function EmployeeDashboardPage() {
           historyTimesheets={previousTimesheets}
           onSubmit={handleSubmitTimesheet}
           onUpdateRow={handleUpdateTimesheetRow}
-          onDeleteRow={handleDeleteTimesheetRow}
           busy={busy}
         />
       </main>
+      <HelpButton
+        dashboardName="Employee"
+        clientName={userDisplayName}
+        requesterName={userDisplayName}
+      />
     </div>
   );
 }

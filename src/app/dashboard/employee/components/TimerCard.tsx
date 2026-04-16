@@ -28,8 +28,10 @@ type ManualPayload = {
 
 type TimerCardProps = {
   projects: ProjectOption[];
-  activeEntry: { id: number; project: { id: number; name: string } } | null;
+  activeEntry: { id: number; project: { id: number; name: string }; start_time?: string | null } | null;
   entries: ActivityEntry[];
+  todayHours: number;
+  maxDailyHours: number;
   onPunchIn: (payload: { projectId: number; note: string }) => Promise<void>;
   onPunchOut: (entryId: number, payload: { note: string }) => Promise<void>;
   onManualEntry: (payload: ManualPayload) => Promise<void>;
@@ -41,6 +43,7 @@ const formatTime = (date: Date) =>
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    hour12: true,
   });
 
 const formatDate = (date: Date) =>
@@ -51,17 +54,127 @@ const formatDate = (date: Date) =>
     day: "numeric",
   });
 
+const getLocalDateValue = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const timeZoneOptions = [
+  { value: "Asia/Kolkata", label: "India (IST)" },
+  { value: "America/New_York", label: "US (ET)" },
+  { value: "Europe/London", label: "UK (GMT/BST)" },
+];
+
+const getDateValueForTimeZone = (timeZone: string, value = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+
+  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${partMap.year}-${partMap.month}-${partMap.day}`;
+};
+
+const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const zonedTime = Date.UTC(
+    Number(partMap.year),
+    Number(partMap.month) - 1,
+    Number(partMap.day),
+    Number(partMap.hour),
+    Number(partMap.minute),
+    Number(partMap.second)
+  );
+
+  return (zonedTime - date.getTime()) / 60000;
+};
+
+const getZonedIso = (dateValue: string, timeValue: string, timeZone: string) => {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const [hours, minutes] = timeValue.split(":").map(Number);
+  const localAsUtc = Date.UTC(year, month - 1, day, hours, minutes, 0);
+  const firstOffset = getTimeZoneOffsetMinutes(new Date(localAsUtc), timeZone);
+  const firstUtc = localAsUtc - firstOffset * 60000;
+  const finalOffset = getTimeZoneOffsetMinutes(new Date(firstUtc), timeZone);
+  return new Date(localAsUtc - finalOffset * 60000).toISOString();
+};
+
 const formatDuration = (minutes: number) => {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours === 0) return `${mins}m`;
+  const totalSeconds = Math.max(Math.round(minutes * 60), 0);
+  const hours = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+
+  if (hours === 0 && mins === 0) return `${secs}s`;
+  if (hours === 0) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+  if (secs > 0) return `${hours}h ${mins.toString().padStart(2, "0")}m ${secs.toString().padStart(2, "0")}s`;
   return `${hours}h ${mins.toString().padStart(2, "0")}m`;
+};
+
+const formatTwelveHourInput = (value: string) => {
+  const upper = value.toUpperCase().replace(/\s+/g, " ").trim();
+  const digits = upper.replace(/[^0-9APM]/g, "");
+  const suffixMatch = digits.match(/(AM|PM)$/);
+  const suffix = suffixMatch ? suffixMatch[1] : "";
+  const timeDigits = digits.replace(/(AM|PM)$/g, "").slice(0, 4);
+
+  if (timeDigits.length <= 2) {
+    return `${timeDigits}${suffix ? ` ${suffix}` : ""}`.trim();
+  }
+
+  return `${timeDigits.slice(0, 2)}:${timeDigits.slice(2)}${suffix ? ` ${suffix}` : ""}`.trim();
+};
+
+const toTwentyFourHourTime = (value: string) => {
+  const normalized = value.trim().toUpperCase();
+  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+
+  if (hours < 1 || hours > 12 || minutes < 0 || minutes > 59) {
+    return null;
+  }
+
+  return { hours, minutes };
+};
+
+const toTwentyFourHourValue = (value: string, meridiem: string) => {
+  const parsed = toTwentyFourHourTime(value);
+  if (!parsed) return null;
+
+  const { hours, minutes } = parsed;
+  let hours24 = hours % 12;
+  if (meridiem === "PM") {
+    hours24 += 12;
+  }
+
+  return `${String(hours24).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 };
 
 export function TimerCard({
   projects,
   activeEntry,
   entries,
+  todayHours,
+  maxDailyHours,
   onPunchIn,
   onPunchOut,
   onManualEntry,
@@ -73,9 +186,12 @@ export function TimerCard({
 
   const [manualProjectId, setManualProjectId] = useState<number | "">("");
   const [manualDescription, setManualDescription] = useState("");
-  const [manualDate, setManualDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [manualStart, setManualStart] = useState("09:00");
-  const [manualEnd, setManualEnd] = useState("10:00");
+  const [manualDate, setManualDate] = useState(() => getLocalDateValue());
+  const [manualStart, setManualStart] = useState("");
+  const [manualStartMeridiem, setManualStartMeridiem] = useState("AM");
+  const [manualEnd, setManualEnd] = useState("");
+  const [manualEndMeridiem, setManualEndMeridiem] = useState("PM");
+  const [manualTimeZone, setManualTimeZone] = useState("Asia/Kolkata");
   const [manualError, setManualError] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -104,6 +220,19 @@ export function TimerCard({
 
   const handlePunchOut = async () => {
     if (!activeEntry) return;
+    if (activeEntry.start_time) {
+      const activeMinutes = Math.max(
+        Math.round((now.getTime() - new Date(activeEntry.start_time).getTime()) / 60000),
+        0
+      );
+      const nextTotalHours = todayHours + activeMinutes / 60;
+
+      if (nextTotalHours > maxDailyHours) {
+        setErrorMessage(`Daily limit reached. You cannot log more than ${maxDailyHours} hours in a day.`);
+        return;
+      }
+    }
+
     setErrorMessage("");
     try {
       await onPunchOut(activeEntry.id, { note });
@@ -114,17 +243,37 @@ export function TimerCard({
   };
 
   const handleManualEntry = async () => {
-    if (!manualProjectId || !manualDate || !manualStart || !manualEnd) {
+    if (!manualProjectId || !manualDate) {
       setManualError("Project, date, start, and end time are required.");
       return;
     }
 
-    const startIso = `${manualDate}T${manualStart}:00`;
-    const endIso = `${manualDate}T${manualEnd}:00`;
+    const parsedStart = toTwentyFourHourValue(manualStart, manualStartMeridiem);
+    const parsedEnd = toTwentyFourHourValue(manualEnd, manualEndMeridiem);
+
+    if (!parsedStart || !parsedEnd) {
+      setManualError("Enter start and end time in hh:mm format and choose AM/PM.");
+      return;
+    }
+
+    const startIso = getZonedIso(manualDate, parsedStart, manualTimeZone);
+    const endIso = getZonedIso(manualDate, parsedEnd, manualTimeZone);
     const startDate = new Date(startIso);
     const endDate = new Date(endIso);
     if (endDate <= startDate) {
       setManualError("End time must be after start time.");
+      return;
+    }
+
+    const durationHours = (endDate.getTime() - startDate.getTime()) / 3600000;
+    if (durationHours > maxDailyHours) {
+      setManualError(`Manual entry cannot exceed ${maxDailyHours} hours in a day.`);
+      return;
+    }
+
+    const todayDate = getDateValueForTimeZone(manualTimeZone);
+    if (manualDate === todayDate && todayHours + durationHours > maxDailyHours) {
+      setManualError(`Daily limit reached. You cannot log more than ${maxDailyHours} hours in a day.`);
       return;
     }
 
@@ -171,7 +320,7 @@ export function TimerCard({
         <div className="rounded-2xl border border-gray-200 bg-gray-50 px-5 py-5 flex flex-col justify-between">
           <p className="text-xs uppercase tracking-wide text-gray-500">Total today</p>
           <p className="text-2xl font-semibold text-gray-900">{formatDuration(totalMinutesToday)}</p>
-          <p className="text-xs text-gray-500">From logged entries</p>
+          <p className="text-xs text-gray-500">Limit: {maxDailyHours}h per day</p>
         </div>
       </div>
 
@@ -272,27 +421,70 @@ export function TimerCard({
               type="date"
               value={manualDate}
               onChange={(event) => setManualDate(event.target.value)}
+              max={getDateValueForTimeZone(manualTimeZone)}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:col-span-2 md:grid-cols-[160px_160px_180px]">
             <div>
               <label className="text-xs font-medium text-gray-600">Start time</label>
-              <input
-                type="time"
-                value={manualStart}
-                onChange={(event) => setManualStart(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              <div className="mt-1 grid grid-cols-[80px_72px] gap-2">
+                <input
+                  type="text"
+                  value={manualStart}
+                  onChange={(event) => setManualStart(formatTwelveHourInput(event.target.value))}
+                  placeholder="hh:mm"
+                  className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <select
+                  value={manualStartMeridiem}
+                  onChange={(event) => setManualStartMeridiem(event.target.value)}
+                  className="w-[72px] rounded-lg border border-gray-300 px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="AM">AM</option>
+                  <option value="PM">PM</option>
+                </select>
+              </div>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600">End time</label>
-              <input
-                type="time"
-                value={manualEnd}
-                onChange={(event) => setManualEnd(event.target.value)}
+              <div className="mt-1 grid grid-cols-[80px_72px] gap-2">
+                <input
+                  type="text"
+                  value={manualEnd}
+                  onChange={(event) => setManualEnd(formatTwelveHourInput(event.target.value))}
+                  placeholder="hh:mm"
+                  className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <select
+                  value={manualEndMeridiem}
+                  onChange={(event) => setManualEndMeridiem(event.target.value)}
+                  className="w-[72px] rounded-lg border border-gray-300 px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="AM">AM</option>
+                  <option value="PM">PM</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600">Time zone</label>
+              <select
+                value={manualTimeZone}
+                onChange={(event) => {
+                  setManualTimeZone(event.target.value);
+                  setManualDate((currentDate) => {
+                    const maxDate = getDateValueForTimeZone(event.target.value);
+                    return currentDate > maxDate ? maxDate : currentDate;
+                  });
+                }}
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
+              >
+                {timeZoneOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

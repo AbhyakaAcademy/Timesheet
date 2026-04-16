@@ -22,6 +22,15 @@ from finance.models import (
     ProjectTask,
 )
 from notifications.models import Notification
+from tenants.models import (
+    Department,
+    TenantAuditLog,
+    TenantBillingRate,
+    TenantOrganization,
+    TenantOvertimeRule,
+    TenantPolicy,
+    TenantSubscription,
+)
 from timesheets.models import (
     ApprovalAction,
     Project,
@@ -43,12 +52,91 @@ class Command(BaseCommand):
     help = "Seed demo users and sample records for local testing."
 
     def handle(self, *args, **options):
+        organization, _ = TenantOrganization.objects.get_or_create(
+            slug="acme-corporation",
+            defaults={
+                "name": "Acme Corporation",
+                "industry": "Technology",
+                "contact_email": "admin@acme-corp.com",
+                "contact_phone": "+91 98765 43210",
+                "footer_notes": "Thank you for your business! Payment terms: Net 30 days.",
+                "locations_count": 8,
+                "cost_centers_count": 24,
+            },
+        )
+        engineering, _ = Department.objects.get_or_create(
+            organization=organization,
+            name="Engineering",
+            defaults={"status": "Active"},
+        )
+        sales, _ = Department.objects.get_or_create(
+            organization=organization,
+            name="Sales",
+            defaults={"status": "Pending"},
+        )
+        marketing, _ = Department.objects.get_or_create(
+            organization=organization,
+            name="Marketing",
+            defaults={"status": "Inactive"},
+        )
+
         users = {}
-        users["employee"] = self.create_user("employee1", "Pass@12345", UserRole.EMPLOYEE, "Employee", "One")
-        users["manager"] = self.create_user("manager1", "Pass@12345", UserRole.MANAGER, "Manager", "One")
+        users["employee"] = self.create_user("employee1", "Pass@12345", UserRole.EMPLOYEE, "Employee", "One", organization=organization, department=engineering)
+        users["employee2"] = self.create_user("employee2", "Pass@12345", UserRole.EMPLOYEE, "Ananya", "Rao", organization=organization, department=marketing)
+        users["employee3"] = self.create_user("employee3", "Pass@12345", UserRole.EMPLOYEE, "Rahul", "Mehta", organization=organization, department=sales)
+        users["manager"] = self.create_user("manager1", "Pass@12345", UserRole.MANAGER, "Manager", "One", organization=organization, department=engineering)
         users["admin"] = self.create_user("admin1", "Pass@12345", UserRole.ADMIN, "Admin", "One", is_staff=True)
-        users["finance"] = self.create_user("finance1", "Pass@12345", UserRole.FINANCE, "Finance", "One")
-        users["tenant"] = self.create_user("tenant1", "Pass@12345", UserRole.TENANT, "Tenant", "One")
+        users["finance"] = self.create_user("finance1", "Pass@12345", UserRole.FINANCE, "Finance", "One", organization=organization, department=sales)
+        users["tenant"] = self.create_user("tenant1", "Pass@12345", UserRole.TENANT, "Tenant", "One", organization=organization, department=engineering)
+
+        engineering.head = users["manager"]
+        engineering.save(update_fields=["head"])
+
+        TenantSubscription.objects.get_or_create(
+            organization=organization,
+            defaults={
+                "plan_name": "Enterprise",
+                "billing_cycle": "Annual",
+                "licenses": 500,
+                "monthly_recurring_revenue": Decimal("649.00"),
+                "status": "Active",
+                "payment_status": "Paid",
+                "renewal_date": timezone.now().date() + timedelta(days=30),
+                "history": ["Created on seed"],
+            },
+        )
+        TenantPolicy.objects.get_or_create(
+            organization=organization,
+            title="Working Hours Policy",
+            defaults={
+                "description": "Defines standard working hours, break times, and flexible work arrangements",
+                "applies_to": "All departments",
+                "enabled": True,
+                "details": ["Standard shift 9:30 AM to 6:30 PM", "45-minute lunch break"],
+            },
+        )
+        TenantBillingRate.objects.get_or_create(
+            organization=organization,
+            role="Software Engineer",
+            project_name="All Projects",
+            defaults={"hourly_rate": Decimal("2500.00"), "rate_type": "Hourly", "is_active": True},
+        )
+        TenantOvertimeRule.objects.get_or_create(
+            organization=organization,
+            title="Standard Overtime",
+            defaults={"threshold": "After 40 hours", "multiplier": "1.5x", "applies_to": "Hourly Staff", "active": True},
+        )
+        TenantAuditLog.objects.get_or_create(
+            organization=organization,
+            actor=users["tenant"],
+            action="Created user account",
+            resource="john.doe@company.com",
+            defaults={
+                "actor_name": users["tenant"].get_full_name() or users["tenant"].username,
+                "actor_email": users["tenant"].email,
+                "details": "New user John Doe was added to the Engineering department with Employee role.",
+            },
+        )
 
         project_a, _ = Project.objects.get_or_create(
             code="PRJ-1001",
@@ -60,72 +148,62 @@ class Command(BaseCommand):
         )
 
         TeamMembership.objects.get_or_create(manager=users["manager"], employee=users["employee"])
+        TeamMembership.objects.get_or_create(manager=users["manager"], employee=users["employee2"])
+        TeamMembership.objects.get_or_create(manager=users["manager"], employee=users["employee3"])
 
         current_week = week_start_for(timezone.now())
-        draft, _ = Timesheet.objects.get_or_create(
+        self.seed_employee_records(
             employee=users["employee"],
-            week_start=current_week,
-            defaults={"status": TimesheetStatus.DRAFT},
-        )
-        TimesheetLine.objects.get_or_create(
-            timesheet=draft,
-            date=current_week,
-            project=project_a,
-            description="Feature implementation",
-            hours=Decimal("8.00"),
-            shift="DAY",
-        )
-
-        submitted_week = current_week - timedelta(days=7)
-        submitted, _ = Timesheet.objects.get_or_create(
-            employee=users["employee"],
-            week_start=submitted_week,
-            defaults={"status": TimesheetStatus.SUBMITTED, "submitted_at": timezone.now() - timedelta(days=2)},
-        )
-        TimesheetLine.objects.get_or_create(
-            timesheet=submitted,
-            date=submitted_week,
-            project=project_b,
-            description="Support work",
-            hours=Decimal("7.50"),
-            shift="DAY",
-        )
-
-        approved_week = current_week - timedelta(days=14)
-        approved, _ = Timesheet.objects.get_or_create(
-            employee=users["employee"],
-            week_start=approved_week,
-            defaults={"status": TimesheetStatus.APPROVED, "submitted_at": timezone.now() - timedelta(days=9)},
-        )
-        TimesheetLine.objects.get_or_create(
-            timesheet=approved,
-            date=approved_week,
-            project=project_a,
-            description="Code review",
-            hours=Decimal("6.50"),
-            shift="DAY",
-        )
-        TimesheetApproval.objects.get_or_create(
-            timesheet=approved,
             manager=users["manager"],
-            action=ApprovalAction.APPROVED,
-            defaults={"comment": "Looks good"},
+            current_week=current_week,
+            draft_project=project_a,
+            draft_description="Feature implementation",
+            draft_hours=Decimal("8.00"),
+            submitted_project=project_b,
+            submitted_description="Support work",
+            submitted_hours=Decimal("7.50"),
+            approved_project=project_a,
+            approved_description="Code review",
+            approved_hours=Decimal("6.50"),
+            manual_project=project_a,
+            manual_note="Backfill entry",
+            manual_hours=2,
+        )
+        self.seed_employee_records(
+            employee=users["employee2"],
+            manager=users["manager"],
+            current_week=current_week,
+            draft_project=project_b,
+            draft_description="Client coordination",
+            draft_hours=Decimal("8.50"),
+            submitted_project=project_a,
+            submitted_description="Sprint planning",
+            submitted_hours=Decimal("8.00"),
+            approved_project=project_b,
+            approved_description="Documentation updates",
+            approved_hours=Decimal("6.00"),
+            manual_project=project_b,
+            manual_note="Support follow-up",
+            manual_hours=1,
+        )
+        self.seed_employee_records(
+            employee=users["employee3"],
+            manager=users["manager"],
+            current_week=current_week,
+            draft_project=project_a,
+            draft_description="Testing and QA",
+            draft_hours=Decimal("7.00"),
+            submitted_project=project_b,
+            submitted_description="Bug triage",
+            submitted_hours=Decimal("6.50"),
+            approved_project=project_a,
+            approved_description="Release verification",
+            approved_hours=Decimal("7.25"),
+            manual_project=project_a,
+            manual_note="Regression checks",
+            manual_hours=3,
         )
 
-        TimeEntry.objects.get_or_create(
-            employee=users["employee"],
-            project=project_a,
-            source=TimeEntrySource.MANUAL,
-            start_time=timezone.now() - timedelta(hours=3),
-            end_time=timezone.now() - timedelta(hours=1),
-            defaults={"duration_minutes": 120, "note": "Backfill entry"},
-        )
-
-        Notification.objects.get_or_create(
-            recipient=users["employee"],
-            title="Welcome",
-            message="Your demo account is ready.",
-        )
         Notification.objects.get_or_create(
             recipient=users["manager"],
             title="Review pending",
@@ -334,10 +412,10 @@ class Command(BaseCommand):
         )
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded successfully."))
-        self.stdout.write("Users: employee1, manager1, admin1, finance1, tenant1")
+        self.stdout.write("Users: employee1, employee2, employee3, manager1, admin1, finance1, tenant1")
         self.stdout.write("Password for all demo users: Pass@12345")
 
-    def create_user(self, username, password, role, first_name, last_name, is_staff=False):
+    def create_user(self, username, password, role, first_name, last_name, is_staff=False, organization=None, department=None):
         user, created = User.objects.get_or_create(
             username=username,
             defaults={
@@ -346,6 +424,8 @@ class Command(BaseCommand):
                 "last_name": last_name,
                 "role": role,
                 "is_staff": is_staff,
+                "organization": organization,
+                "department": department,
             },
         )
         updated = False
@@ -355,9 +435,131 @@ class Command(BaseCommand):
         if user.is_staff != is_staff:
             user.is_staff = is_staff
             updated = True
+        if organization is not None and user.organization_id != organization.id:
+            user.organization = organization
+            updated = True
+        if department is not None and user.department_id != department.id:
+            user.department = department
+            updated = True
         if created or not user.check_password(password):
             user.set_password(password)
             updated = True
         if updated:
             user.save()
         return user
+
+    def seed_employee_records(
+        self,
+        *,
+        employee,
+        manager,
+        current_week,
+        draft_project,
+        draft_description,
+        draft_hours,
+        submitted_project,
+        submitted_description,
+        submitted_hours,
+        approved_project,
+        approved_description,
+        approved_hours,
+        manual_project,
+        manual_note,
+        manual_hours,
+    ):
+        draft = (
+            Timesheet.objects.filter(
+                employee=employee,
+                week_start=current_week,
+                status=TimesheetStatus.DRAFT,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if draft is None:
+            draft = Timesheet.objects.create(
+                employee=employee,
+                week_start=current_week,
+                status=TimesheetStatus.DRAFT,
+            )
+        TimesheetLine.objects.get_or_create(
+            timesheet=draft,
+            date=current_week,
+            project=draft_project,
+            description=draft_description,
+            hours=draft_hours,
+            shift="DAY",
+        )
+
+        submitted_week = current_week - timedelta(days=7)
+        submitted = (
+            Timesheet.objects.filter(
+                employee=employee,
+                week_start=submitted_week,
+                status=TimesheetStatus.SUBMITTED,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if submitted is None:
+            submitted = Timesheet.objects.create(
+                employee=employee,
+                week_start=submitted_week,
+                status=TimesheetStatus.SUBMITTED,
+                submitted_at=timezone.now() - timedelta(days=2),
+            )
+        TimesheetLine.objects.get_or_create(
+            timesheet=submitted,
+            date=submitted_week,
+            project=submitted_project,
+            description=submitted_description,
+            hours=submitted_hours,
+            shift="DAY",
+        )
+
+        approved_week = current_week - timedelta(days=14)
+        approved = (
+            Timesheet.objects.filter(
+                employee=employee,
+                week_start=approved_week,
+                status=TimesheetStatus.APPROVED,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if approved is None:
+            approved = Timesheet.objects.create(
+                employee=employee,
+                week_start=approved_week,
+                status=TimesheetStatus.APPROVED,
+                submitted_at=timezone.now() - timedelta(days=9),
+            )
+        TimesheetLine.objects.get_or_create(
+            timesheet=approved,
+            date=approved_week,
+            project=approved_project,
+            description=approved_description,
+            hours=approved_hours,
+            shift="DAY",
+        )
+        TimesheetApproval.objects.get_or_create(
+            timesheet=approved,
+            manager=manager,
+            action=ApprovalAction.APPROVED,
+            defaults={"comment": "Looks good"},
+        )
+
+        TimeEntry.objects.get_or_create(
+            employee=employee,
+            project=manual_project,
+            source=TimeEntrySource.MANUAL,
+            start_time=timezone.now() - timedelta(hours=manual_hours + 1),
+            end_time=timezone.now() - timedelta(hours=1),
+            defaults={"duration_minutes": manual_hours * 60, "note": manual_note},
+        )
+
+        Notification.objects.get_or_create(
+            recipient=employee,
+            title="Welcome",
+            message="Your demo account is ready.",
+        )

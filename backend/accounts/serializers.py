@@ -6,9 +6,11 @@ from accounts.models import User
 
 
 class MeSerializer(serializers.ModelSerializer):
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
+
     class Meta:
         model = User
-        fields = ("id", "username", "email", "first_name", "last_name", "role")
+        fields = ("id", "username", "email", "first_name", "last_name", "role", "organization", "organization_name")
 
 
 class LoginSerializer(serializers.Serializer):

@@ -35,6 +35,47 @@ const formatDuration = (minutes: number) => {
   return `${hours}h ${mins.toString().padStart(2, "0")}m`;
 };
 
+const timeZoneOptions = [
+  { value: "Asia/Kolkata", label: "India (IST)" },
+  { value: "America/New_York", label: "US (ET)" },
+  { value: "Europe/London", label: "UK (GMT/BST)" },
+];
+
+const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const zonedTime = Date.UTC(
+    Number(partMap.year),
+    Number(partMap.month) - 1,
+    Number(partMap.day),
+    Number(partMap.hour),
+    Number(partMap.minute),
+    Number(partMap.second)
+  );
+
+  return (zonedTime - date.getTime()) / 60000;
+};
+
+const getZonedDate = (dateValue: string, timeValue: string, timeZone: string) => {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const [hours, minutes] = timeValue.split(":").map(Number);
+  const localAsUtc = Date.UTC(year, month - 1, day, hours, minutes, 0);
+  const firstOffset = getTimeZoneOffsetMinutes(new Date(localAsUtc), timeZone);
+  const firstUtc = localAsUtc - firstOffset * 60000;
+  const finalOffset = getTimeZoneOffsetMinutes(new Date(firstUtc), timeZone);
+  return new Date(localAsUtc - finalOffset * 60000);
+};
+
 type TimesheetDraft = {
   day: string;
   project: string;
@@ -60,6 +101,7 @@ export function TimerCard({ onAddTimesheetEntry }: TimerCardProps) {
   );
   const [manualStart, setManualStart] = useState("09:00");
   const [manualEnd, setManualEnd] = useState("10:00");
+  const [manualTimeZone, setManualTimeZone] = useState("Asia/Kolkata");
   const [manualError, setManualError] = useState("");
   const [showProjectWarning, setShowProjectWarning] = useState(false);
   const [activeStart, setActiveStart] = useState<Date | null>(null);
@@ -146,8 +188,8 @@ export function TimerCard({ onAddTimesheetEntry }: TimerCardProps) {
       return;
     }
 
-    const startDate = new Date(`${manualDate}T${manualStart}`);
-    const endDate = new Date(`${manualDate}T${manualEnd}`);
+    const startDate = getZonedDate(manualDate, manualStart, manualTimeZone);
+    const endDate = getZonedDate(manualDate, manualEnd, manualTimeZone);
 
     if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
       setManualError("Please enter valid start and end times.");
@@ -384,7 +426,7 @@ export function TimerCard({ onAddTimesheetEntry }: TimerCardProps) {
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:col-span-2 md:grid-cols-[160px_160px_180px]">
             <div>
               <label className="text-xs font-medium text-gray-600">
                 Start time
@@ -404,8 +446,24 @@ export function TimerCard({ onAddTimesheetEntry }: TimerCardProps) {
                 type="time"
                 value={manualEnd}
                 onChange={(event) => setManualEnd(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="mt-1 w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600">
+                Time zone
+              </label>
+              <select
+                value={manualTimeZone}
+                onChange={(event) => setManualTimeZone(event.target.value)}
+                className="mt-1 w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {timeZoneOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

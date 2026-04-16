@@ -18,17 +18,20 @@ const plans = [
     key: "starter",
     name: "Starter",
     description: "Small teams",
-    monthly: 199,
-    annual: 199,
-    indicativePrice: "\u20B9149-\u20B9249",
+    monthlyMin: 149,
+    monthlyMax: 249,
+    annualMin: 1520,
+    annualMax: 2540,
     features: ["Time capture", "Projects", "Manager approvals", "Basic reports", "CSV export"]
   },
   {
     key: "professional",
     name: "Professional",
     description: "For growing organizations",
-    monthly: 7999,
-    annual: 6399,
+    monthlyMin: 349,
+    monthlyMax: 599,
+    annualMin: 3560,
+    annualMax: 6110,
     features: [
       "Up to 100 users",
       "Advanced analytics",
@@ -68,15 +71,15 @@ export default function SubscriptionPage() {
   const [region, setRegion] = useState("IN");
   const [selectedPlan, setSelectedPlan] = useState("professional");
   const [form, setForm] = useState({
-    companyName: "Acme Corporation",
-    users: "25",
-    fullName: "John Doe",
-    email: "john@company.com",
-    phone: "+1 (555) 000-0000",
+    companyName: "",
+    users: "",
+    fullName: "",
+    email: "",
+    phone: "",
     paymentMethod: "Credit Card",
-    cardNumber: "1234 5678 9012 3456",
-    expiry: "MM/YY",
-    cvv: "123"
+    cardNumber: "",
+    expiry: "",
+    cvv: ""
   });
 
   const activePlan = useMemo(
@@ -84,15 +87,38 @@ export default function SubscriptionPage() {
     [selectedPlan]
   );
 
-  const perUserPrice = activePlan.custom ? 0 : activePlan[billing];
   const userCount = Number.parseInt(form.users, 10) || 1;
-  const discount = billing === "annual" ? 0.2 : 0;
-  const total = activePlan.custom ? "Custom" : Math.round(perUserPrice * userCount * (1 - discount));
-  const regionalPrice = activePlan.custom ? 0 : Math.round(perUserPrice * regionMeta[region].multiplier);
-  const regionalTotal = activePlan.custom ? 0 : Math.round(Number(total) * regionMeta[region].multiplier);
 
+  const convertAmount = (value) => Math.round(value * regionMeta[region].multiplier);
   const formatAmount = (value) =>
     `${regionMeta[region].symbol}${value.toLocaleString(regionMeta[region].locale)}`;
+  const formatRange = (min, max) => `${formatAmount(min)}-${formatAmount(max)}`;
+
+  const activePriceRange = activePlan.custom
+    ? null
+    : billing === "annual"
+      ? {
+          min: convertAmount(activePlan.annualMin),
+          max: convertAmount(activePlan.annualMax),
+        }
+      : {
+          min: convertAmount(activePlan.monthlyMin),
+          max: convertAmount(activePlan.monthlyMax),
+        };
+
+  const totalRange = activePlan.custom || !activePriceRange
+    ? null
+    : {
+        min: activePriceRange.min * userCount,
+        max: activePriceRange.max * userCount,
+      };
+
+  const monthlyEquivalentRange = activePlan.custom
+    ? null
+    : {
+        min: convertAmount(activePlan.monthlyMin),
+        max: convertAmount(activePlan.monthlyMax),
+      };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -112,8 +138,8 @@ export default function SubscriptionPage() {
               <Clock className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-[22px] leading-[0.95] tracking-[-0.03em] font-semibold text-slate-900">Abhyaka</h1>
-              <p className="text-[12px] leading-[0.95] tracking-[-0.02em] text-slate-600">Time Intelligence</p>
+              <h1 className="text-[20px] leading-[0.95] tracking-[-0.03em] font-semibold text-slate-900">Abhyaka</h1>
+              <p className="text-[11px] leading-[0.95] tracking-[-0.02em] text-slate-600">Time Intelligence</p>
             </div>
           </Link>
 
@@ -128,7 +154,7 @@ export default function SubscriptionPage() {
 
       <div className="max-w-[1560px] mx-auto py-10 px-6">
         <h1 className="text-center text-3xl font-bold text-gray-900 mb-3">Choose Your Plan</h1>
-        <p className="text-center text-gray-600 mb-8">Start your 30-day free trial today</p>
+        <p className="text-center text-gray-600 mb-8">Start your 30-day free trial today with no credit card required</p>
 
         <div className="max-w-4xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm p-3 mb-8 flex items-center gap-3">
           <p className="text-slate-700 text-sm ml-2">Choose Region:</p>
@@ -166,8 +192,23 @@ export default function SubscriptionPage() {
               Annual
             </button>
             <span className="absolute -top-2 right-2 px-3 py-1 rounded-full text-xs font-semibold bg-green-500 text-white">
-              Save 20%
+              Save 15%
             </span>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-4 mb-10 max-w-5xl mx-auto">
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900 mb-1">Free Trial</p>
+            <p className="text-sm text-slate-600">14-30 days available. Recommended setup: 30-day free trial with no credit card required.</p>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900 mb-1">Annual Billing</p>
+            <p className="text-sm text-slate-600">Annual plans include a 15% discount to improve retention and cash flow.</p>
+          </div>
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900 mb-1">Proration</p>
+            <p className="text-sm text-slate-600">Mid-cycle upgrades and downgrades apply automatic credits or charges based on the unused balance.</p>
           </div>
         </div>
 
@@ -175,8 +216,12 @@ export default function SubscriptionPage() {
           {plans.map((plan) => {
             const selected = selectedPlan === plan.key;
             const price = plan.custom
-              ? "Custom Pricing"
-              : `${regionMeta[region].symbol}${Math.round(plan[billing] * regionMeta[region].multiplier).toLocaleString(regionMeta[region].locale)}`;
+              ? billing === "annual"
+                ? "Custom per year"
+                : "Custom per month"
+              : billing === "annual"
+                ? formatRange(convertAmount(plan.annualMin), convertAmount(plan.annualMax))
+                : formatRange(convertAmount(plan.monthlyMin), convertAmount(plan.monthlyMax));
             const suffix = plan.custom ? "" : billing === "annual" ? "/user/yr" : "/user/mo";
 
             return (
@@ -184,7 +229,7 @@ export default function SubscriptionPage() {
                 key={plan.key}
                 type="button"
                 onClick={() => setSelectedPlan(plan.key)}
-                className={`text-left bg-white rounded-3xl p-8 shadow-md border-2 transition ${
+                className={`text-left bg-white rounded-3xl p-8 shadow-md border-2 transition-all duration-200 hover:border-indigo-600 hover:shadow-2xl hover:-translate-y-1 ${
                   selected ? "border-indigo-600" : "border-transparent"
                 }`}
               >
@@ -195,11 +240,14 @@ export default function SubscriptionPage() {
                     </span>
                   </div>
                 )}
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{plan.name}</h2>
+                <h2 className="text-[30px] font-bold text-gray-900 mb-2">{plan.name}</h2>
                 <p className="text-gray-600 mb-7">{plan.description}</p>
                 <div className="mb-8">
-                  <span className={`${plan.custom ? "text-3xl" : "text-4xl"} font-bold text-gray-900`}>{price}</span>
+                  <span className={`${plan.custom ? "text-2xl" : "text-3xl"} font-bold text-gray-900`}>{price}</span>
                   {suffix && <span className="text-gray-500 text-xl">{suffix}</span>}
+                  {!plan.custom && billing === "annual" && (
+                    <p className="text-sm text-emerald-600 mt-3">Annual billing includes 15% savings.</p>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -332,22 +380,39 @@ export default function SubscriptionPage() {
           <div className="rounded-2xl bg-slate-50 border border-slate-200 p-6 mb-7">
             <h4 className="text-2xl font-semibold tracking-tight text-gray-900 mb-4">Order Summary</h4>
             <div className="space-y-3 text-gray-700 text-base">
-              <div className="flex justify-between"><span>Plan: {activePlan.name}</span><span>{activePlan.custom ? "Custom" : `${formatAmount(regionalPrice)}/user`}</span></div>
+              <div className="flex justify-between">
+                <span>Plan: {activePlan.name}</span>
+                <span>
+                  {activePlan.custom || !activePriceRange
+                    ? "Custom"
+                    : `${formatRange(activePriceRange.min, activePriceRange.max)}/user`}
+                </span>
+              </div>
               <div className="flex justify-between"><span>Billing Cycle:</span><span>{billing === "annual" ? "Annual" : "Monthly"}</span></div>
               <div className="flex justify-between"><span>Region:</span><span>{regionMeta[region].label}</span></div>
               <div className="flex justify-between"><span>Number of Users:</span><span>{userCount}</span></div>
               {billing === "annual" && (
-                <div className="flex justify-between text-emerald-600"><span>Discount (Annual):</span><span>-20%</span></div>
+                <>
+                  <div className="flex justify-between text-emerald-600"><span>Discount (Annual):</span><span>-15%</span></div>
+                  {monthlyEquivalentRange && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>Monthly list price:</span>
+                      <span>{formatRange(monthlyEquivalentRange.min, monthlyEquivalentRange.max)}/user</span>
+                    </div>
+                  )}
+                </>
               )}
+              <div className="flex justify-between"><span>Free Trial:</span><span>30 days, no card required</span></div>
+              <div className="flex justify-between"><span>Proration:</span><span>Applied automatically</span></div>
             </div>
             <div className="mt-4 pt-4 border-t border-slate-300 flex justify-between text-2xl font-semibold text-gray-900">
               <span>Total:</span>
               <span>
                 {activePlan.custom
                   ? "Contact Sales"
-                  : billing === "annual"
-                    ? `${formatAmount(regionalTotal)}/year`
-                    : `${formatAmount(regionalTotal)}/month`}
+                  : totalRange
+                    ? `${formatRange(totalRange.min, totalRange.max)}/${billing === "annual" ? "year" : "month"}`
+                    : "Custom"}
               </span>
             </div>
           </div>

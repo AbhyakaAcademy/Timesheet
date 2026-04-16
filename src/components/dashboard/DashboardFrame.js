@@ -22,6 +22,27 @@ const tabs = [
     ),
   },
   {
+    key: "employees",
+    label: "Employees",
+    href: "/dashboard/manager/employees",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        className="h-6 w-6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="9" cy="8" r="3" />
+        <path d="M4 18a5 5 0 0 1 10 0" />
+        <circle cx="17" cy="9" r="2.3" />
+        <path d="M15.5 17a4.5 4.5 0 0 1 4.5 1" />
+      </svg>
+    ),
+  },
+  {
     key: "reports",
     label: "Team Reports",
     href: "/dashboard/manager/reports",

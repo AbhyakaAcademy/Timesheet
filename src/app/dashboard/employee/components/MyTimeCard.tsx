@@ -3,14 +3,29 @@
 import { Clock, Calendar, TrendingUp } from "lucide-react";
 
 type MyTimeCardProps = {
-  todayHours: number;
-  weekHours: number;
-  monthHours: number;
+  todaySeconds: number;
+  weekSeconds: number;
+  monthSeconds: number;
 };
 
-export function MyTimeCard({ todayHours, weekHours, monthHours }: MyTimeCardProps) {
+const formatTrackedTime = (secondsValue: number) => {
+  const totalSeconds = Math.max(Math.round(Number(secondsValue || 0)), 0);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours === 0 && minutes === 0) return `${seconds}s`;
+  if (hours === 0) return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  if (seconds === 0 && minutes === 0) return `${hours}h`;
+  if (seconds === 0) return `${hours}h ${minutes}m`;
+  if (minutes === 0) return `${hours}h ${seconds}s`;
+  return `${hours}h ${minutes}m`;
+};
+
+export function MyTimeCard({ todaySeconds, weekSeconds, monthSeconds }: MyTimeCardProps) {
   const expectedWeekHours = 40;
-  const remainingWeekHours = Math.max(expectedWeekHours - weekHours, 0);
+  const expectedWeekSeconds = expectedWeekHours * 3600;
+  const remainingWeekSeconds = Math.max(expectedWeekSeconds - weekSeconds, 0);
 
   return (
     <section className="bg-white border-2 border-gray-300 rounded-2xl p-4 shadow-sm">
@@ -31,7 +46,7 @@ export function MyTimeCard({ todayHours, weekHours, monthHours }: MyTimeCardProp
             Today
           </div>
           <p className="mt-1.5 text-lg font-semibold text-blue-700">
-            {todayHours.toFixed(1)}h
+            {formatTrackedTime(todaySeconds)}
           </p>
         </div>
 
@@ -41,7 +56,7 @@ export function MyTimeCard({ todayHours, weekHours, monthHours }: MyTimeCardProp
             This Week
           </div>
           <p className="mt-1.5 text-lg font-semibold text-emerald-700">
-            {weekHours.toFixed(1)}h
+            {formatTrackedTime(weekSeconds)}
           </p>
         </div>
 
@@ -51,20 +66,20 @@ export function MyTimeCard({ todayHours, weekHours, monthHours }: MyTimeCardProp
             This Month
           </div>
           <p className="mt-1.5 text-lg font-semibold text-purple-700">
-            {monthHours.toFixed(1)}h
+            {formatTrackedTime(monthSeconds)}
           </p>
         </div>
       </div>
 
       <div className="mt-4 border-t border-gray-200 pt-3 text-xs text-gray-700 space-y-1">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
           <span>Expected this week:</span>
-          <span className="font-semibold">{expectedWeekHours}h</span>
+          <span className="font-semibold">{formatTrackedTime(expectedWeekSeconds)}</span>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
           <span>Remaining:</span>
           <span className="font-semibold text-rose-500">
-            {remainingWeekHours.toFixed(1)}h
+            {formatTrackedTime(remainingWeekSeconds)}
           </span>
         </div>
       </div>
