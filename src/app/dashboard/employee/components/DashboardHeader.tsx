@@ -9,20 +9,27 @@ import { clearSession } from "@/lib/auth";
 type DashboardHeaderProps = {
   notificationCount: number;
   onNotificationClick: () => void;
-  notifications: { id: string; title: string; message: string; time: string }[];
+  onClearAllNotifications?: () => void;
+  onClearNotification?: (notification: { id: string; title: string; message: string; time: string; source?: string; apiId?: number }) => void;
+  notifications: { id: string; title: string; message: string; time: string; source?: string; apiId?: number }[];
   initialName?: string;
+  initialEmail?: string;
   role?: string;
 };
 
 export function DashboardHeader({
   notificationCount,
   onNotificationClick,
+  onClearAllNotifications,
+  onClearNotification,
   notifications,
   initialName = "John Doe",
+  initialEmail = "employee@abhyaka.com",
   role = "Software Engineer",
 }: DashboardHeaderProps) {
   const quickSettingsStorageKey = "employeeQuickSettings";
   const displayNameStorageKey = "employeeDashboardDisplayName";
+  const emailStorageKey = "employeeDashboardEmail";
   const router = useRouter();
   const pathname = usePathname();
   const headerActionsRef = useRef<HTMLDivElement | null>(null);
@@ -36,6 +43,16 @@ export function DashboardHeader({
     if (typeof window === "undefined") return initialName;
     const storedName = window.localStorage.getItem(displayNameStorageKey);
     return storedName?.trim() || initialName;
+  });
+  const [email, setEmail] = useState(() => {
+    if (typeof window === "undefined") return initialEmail;
+    const storedEmail = window.localStorage.getItem(emailStorageKey);
+    return storedEmail?.trim() || initialEmail;
+  });
+  const [draftEmail, setDraftEmail] = useState(() => {
+    if (typeof window === "undefined") return initialEmail;
+    const storedEmail = window.localStorage.getItem(emailStorageKey);
+    return storedEmail?.trim() || initialEmail;
   });
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -72,6 +89,7 @@ export function DashboardHeader({
 
   const handleStartEdit = () => {
     setDraftName(name);
+    setDraftEmail(email);
     setIsEditingName(true);
   };
 
@@ -82,9 +100,14 @@ export function DashboardHeader({
 
   const handleSaveEdit = () => {
     const trimmed = draftName.trim();
+    const trimmedEmail = draftEmail.trim();
     if (trimmed) {
       setName(trimmed);
       window.localStorage.setItem(displayNameStorageKey, trimmed);
+    }
+    if (trimmedEmail) {
+      setEmail(trimmedEmail);
+      window.localStorage.setItem(emailStorageKey, trimmedEmail);
     }
     setIsEditingName(false);
     // TODO: API - persist updated employee display name.
@@ -94,6 +117,11 @@ export function DashboardHeader({
     setIsSettingsOpen(false);
     setIsNotificationsOpen((prev) => !prev);
     onNotificationClick();
+  };
+
+  const handleClearAllNotifications = () => {
+    onClearAllNotifications?.();
+    setIsNotificationsOpen(false);
   };
 
   const handleLogout = () => {
@@ -128,13 +156,26 @@ export function DashboardHeader({
             <div>
               <div className="flex items-center gap-2">
                 {isEditingName ? (
-                  <input
-                    value={draftName}
-                    onChange={(event) => setDraftName(event.target.value)}
-                    className="text-sm font-semibold text-gray-900 rounded-md border border-gray-300 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <div className="space-y-1">
+                    <input
+                      value={draftName}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      className="w-48 rounded-md border border-gray-300 px-2 py-1 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      aria-label="Employee name"
+                    />
+                    <input
+                      type="email"
+                      value={draftEmail}
+                      onChange={(event) => setDraftEmail(event.target.value)}
+                      className="w-48 rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      aria-label="Employee email"
+                    />
+                  </div>
                 ) : (
-                  <p className="text-sm font-semibold text-gray-900">{name}</p>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{name}</p>
+                    <p className="text-xs text-gray-500">{email}</p>
+                  </div>
                 )}
                 {isEditingName ? (
                   <div className="flex items-center gap-1">
@@ -166,7 +207,7 @@ export function DashboardHeader({
                   </button>
                 )}
               </div>
-              <p className="text-xs text-gray-500">{role}</p>
+              {!isEditingName ? <p className="text-xs text-gray-500">{role}</p> : null}
             </div>
           </div>
         </div>
@@ -194,10 +235,10 @@ export function DashboardHeader({
                 </p>
                 <button
                   type="button"
-                  onClick={() => setIsNotificationsOpen(false)}
-                  className="text-xs text-gray-500 hover:text-gray-700"
+                  onClick={handleClearAllNotifications}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
                 >
-                  Close
+                  Clear
                 </button>
               </div>
               <div className="mt-3 space-y-3">
@@ -206,11 +247,23 @@ export function DashboardHeader({
                     key={item.id}
                     className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2"
                   >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-900">
-                        {item.title}
-                      </p>
-                      <span className="text-xs text-gray-500">{item.time}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">
+                          {item.title}
+                        </p>
+                        <span className="text-xs text-gray-500">{item.time}</span>
+                      </div>
+                      {onClearNotification ? (
+                        <button
+                          type="button"
+                          onClick={() => onClearNotification(item)}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-xs font-semibold leading-none text-gray-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                          aria-label="Clear notification"
+                        >
+                          x
+                        </button>
+                      ) : null}
                     </div>
                     <p className="mt-1 text-xs text-gray-600">
                       {item.message}

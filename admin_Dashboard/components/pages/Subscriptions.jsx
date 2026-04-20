@@ -1,5 +1,6 @@
 import { TrendingUp, Users, DollarSign, Calendar } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import { useState } from 'react';
 import { StatusBadge } from '../StatusBadge';
 
 const subscriptionPlans = [
@@ -19,10 +20,68 @@ const recentSubscriptions = [
   { id: 8, client: 'NextGen Tech', plan: 'Pro', status: 'Trial', users: 25, mrr: 0, renewalDate: 'Feb 28, 2026', paymentStatus: 'Trial' },
 ];
 
+const CLIENT_NOTIFICATIONS_STORAGE_KEY = 'dashboardClientNotifications';
+const CLIENT_NOTIFICATIONS_EVENT = 'dashboard-client-notifications-updated';
+
+function getDaysUntilRenewal(renewalDate) {
+  if (!renewalDate || renewalDate === '-') return null;
+  const renewal = /^\d{4}-\d{2}-\d{2}$/.test(String(renewalDate))
+    ? new Date(`${renewalDate}T00:00:00`)
+    : new Date(renewalDate);
+  if (Number.isNaN(renewal.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((renewal.getTime() - today.getTime()) / 86400000);
+}
+
+function getExpiryStatus(renewalDate) {
+  const days = getDaysUntilRenewal(renewalDate);
+  if (days === null) return { label: 'No renewal date', tone: 'bg-gray-50 text-gray-600 border-gray-200' };
+  if (days < 0) return { label: `Expired ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} ago`, tone: 'bg-rose-50 text-rose-700 border-rose-200' };
+  if (days === 0) return { label: 'Expires today', tone: 'bg-rose-50 text-rose-700 border-rose-200' };
+  if (days <= 7) return { label: `Expires in ${days} day${days === 1 ? '' : 's'}`, tone: 'bg-amber-50 text-amber-700 border-amber-200' };
+  if (days <= 30) return { label: `Renews in ${days} days`, tone: 'bg-blue-50 text-blue-700 border-blue-200' };
+  return { label: `Renews in ${days} days`, tone: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+}
+
+function createClientNotification({ clientName, title, message }) {
+  if (typeof window === 'undefined') return;
+  const existing = JSON.parse(window.localStorage.getItem(CLIENT_NOTIFICATIONS_STORAGE_KEY) || '[]');
+  const notification = {
+    id: `client-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    clientName,
+    title,
+    message,
+    time: new Date().toISOString(),
+    read: false,
+  };
+  window.localStorage.setItem(CLIENT_NOTIFICATIONS_STORAGE_KEY, JSON.stringify([notification, ...existing]));
+  window.dispatchEvent(new CustomEvent(CLIENT_NOTIFICATIONS_EVENT));
+}
+
 export function Subscriptions() {
+  const [notificationMessage, setNotificationMessage] = useState('');
   const totalSubscriptions = subscriptionPlans.reduce((sum, plan) => sum + plan.value, 0);
   const totalMRR = recentSubscriptions.filter(sub => sub.status === 'Active').reduce((sum, sub) => sum + sub.mrr, 0);
   const activeSubscriptions = recentSubscriptions.filter(sub => sub.status === 'Active').length;
+  const expiringSoon = recentSubscriptions.filter(sub => {
+    const days = getDaysUntilRenewal(sub.renewalDate);
+    return days !== null && days >= 0 && days <= 30 && sub.status !== 'Cancelled';
+  });
+  const expiredSubscriptions = recentSubscriptions.filter(sub => {
+    const days = getDaysUntilRenewal(sub.renewalDate);
+    return days !== null && days < 0 && sub.status !== 'Cancelled';
+  });
+
+  const notifyClient = (subscription) => {
+    const expiry = getExpiryStatus(subscription.renewalDate);
+    createClientNotification({
+      clientName: subscription.client,
+      title: 'Subscription renewal reminder',
+      message: `${subscription.plan} plan for ${subscription.client} ${expiry.label.toLowerCase()}. Please renew or update the subscription to avoid interruption.`,
+    });
+    setNotificationMessage(`Notification sent to ${subscription.client}.`);
+  };
 
   return (
     <div className="space-y-6">
@@ -31,6 +90,12 @@ export function Subscriptions() {
         <h1 className="text-3xl font-semibold text-gray-900">Subscriptions</h1>
         <p className="mt-2 text-gray-600">Manage platform subscriptions and plan tiers</p>
       </div>
+
+      {notificationMessage ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+          {notificationMessage}
+        </div>
+      ) : null}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -70,8 +135,19 @@ export function Subscriptions() {
               <Calendar className="h-5 w-5 text-cyan-600" />
             </div>
           </div>
-          <p className="text-sm text-gray-600 mb-1">Annual Recurring Revenue</p>
-          <p className="text-2xl font-semibold text-gray-900">${(totalMRR * 12).toLocaleString()}</p>
+          <p className="text-sm text-gray-600 mb-1">Expiring in 30 Days</p>
+          <p className="text-2xl font-semibold text-gray-900">{expiringSoon.length}</p>
+          <p className="mt-1 text-xs text-rose-600">{expiredSubscriptions.length} expired</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-amber-900">Renewal Attention</h3>
+            <p className="text-sm text-amber-800">Review clients whose subscription is expired or renewing within 30 days, then notify them from the table.</p>
+          </div>
+          <p className="text-sm font-semibold text-amber-900">{expiredSubscriptions.length + expiringSoon.length} client{expiredSubscriptions.length + expiringSoon.length === 1 ? '' : 's'} need attention</p>
         </div>
       </div>
 
@@ -146,12 +222,15 @@ export function Subscriptions() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Users</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MRR</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Renewal Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expiry</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payment Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {recentSubscriptions.map((subscription) => (
+              {recentSubscriptions.map((subscription) => {
+                const expiry = getExpiryStatus(subscription.renewalDate);
+                return (
                 <tr key={subscription.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
@@ -176,15 +255,18 @@ export function Subscriptions() {
                     ${subscription.mrr.toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{subscription.renewalDate}</td>
+                  <td className="px-6 py-4 whitespace-nowrap"><span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${expiry.tone}`}>{expiry.label}</span></td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <StatusBadge status={subscription.paymentStatus} variant="compact" />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <button className="text-blue-600 hover:text-blue-700 font-medium mr-3 transition-colors">Manage</button>
+                    <button onClick={() => notifyClient(subscription)} className="text-amber-600 hover:text-amber-700 font-medium mr-3 transition-colors">Notify Client</button>
                     <button className="text-gray-600 hover:text-gray-700 font-medium transition-colors">History</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

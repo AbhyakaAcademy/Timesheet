@@ -6,6 +6,7 @@ from timesheets.models import (
     TimeEntry,
     Timesheet,
     TimesheetApproval,
+    TimesheetAttachment,
     TimesheetLine,
 )
 
@@ -156,9 +157,49 @@ class TimesheetApprovalSerializer(serializers.ModelSerializer):
         fields = ("id", "manager", "manager_username", "manager_name", "action", "comment", "acted_at")
 
 
+class TimesheetAttachmentSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.SerializerMethodField()
+    employee_name = serializers.SerializerMethodField()
+    employee_username = serializers.CharField(source="timesheet.employee.username", read_only=True)
+    timesheet_status = serializers.CharField(source="timesheet.status", read_only=True)
+    week_start = serializers.DateField(source="timesheet.week_start", read_only=True)
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TimesheetAttachment
+        fields = (
+            "id",
+            "timesheet",
+            "original_name",
+            "content_type",
+            "size",
+            "uploaded_at",
+            "uploaded_by",
+            "uploaded_by_name",
+            "employee_name",
+            "employee_username",
+            "timesheet_status",
+            "week_start",
+            "download_url",
+        )
+        read_only_fields = fields
+
+    def get_uploaded_by_name(self, obj):
+        full_name = obj.uploaded_by.get_full_name().strip()
+        return full_name or obj.uploaded_by.username
+
+    def get_employee_name(self, obj):
+        full_name = obj.timesheet.employee.get_full_name().strip()
+        return full_name or obj.timesheet.employee.username
+
+    def get_download_url(self, obj):
+        return f"/timesheet-attachments/{obj.id}/download"
+
+
 class TimesheetSerializer(serializers.ModelSerializer):
     lines = TimesheetLineSerializer(many=True, read_only=True)
     approvals = TimesheetApprovalSerializer(many=True, read_only=True)
+    attachments = TimesheetAttachmentSerializer(many=True, read_only=True)
     total_hours = serializers.SerializerMethodField()
     employee_name = serializers.SerializerMethodField()
     employee_username = serializers.CharField(source="employee.username", read_only=True)
@@ -176,6 +217,7 @@ class TimesheetSerializer(serializers.ModelSerializer):
             "total_hours",
             "lines",
             "approvals",
+            "attachments",
         )
 
     def get_total_hours(self, obj):

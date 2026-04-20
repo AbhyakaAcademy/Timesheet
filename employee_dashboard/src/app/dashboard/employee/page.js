@@ -53,6 +53,16 @@ export default function EmployeeDashboardPage() {
     // TODO: API - mark notifications as read.
   };
 
+  const handleClearAllNotifications = () => {
+    setNotifications([]);
+    setUnreadCount(0);
+  };
+
+  const handleClearNotification = (notificationId) => {
+    setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+    setUnreadCount((prev) => Math.max(prev - 1, 0));
+  };
+
   const handleAddTimesheetEntry = (entry) => {
     setTimesheetRows((prev) => [
       {
@@ -104,6 +114,8 @@ export default function EmployeeDashboardPage() {
       <DashboardHeader
         notificationCount={unreadCount}
         onNotificationClick={handleMarkNotificationsRead}
+        onClearAllNotifications={handleClearAllNotifications}
+        onClearNotification={handleClearNotification}
         notifications={notifications}
         initialName="John Doe"
         role="Software Engineer"

@@ -18,7 +18,6 @@ const usersData = [
 export function Users() {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [selectedUser, setSelectedUser] = useState(null);
   const [showViewDialog, setShowViewDialog] = useState(false);
   const [showAddUserDialog, setShowAddUserDialog] = useState(false);
@@ -30,9 +29,8 @@ export function Users() {
       user.company.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesRole = roleFilter === 'all' || user.role.toLowerCase() === roleFilter.toLowerCase();
-    const matchesStatus = statusFilter === 'all' || user.status.toLowerCase() === statusFilter.toLowerCase();
     
-    return matchesSearch && matchesRole && matchesStatus;
+    return matchesSearch && matchesRole;
   });
 
   const handleViewUser = (user) => {
@@ -136,38 +134,6 @@ export function Users() {
             }`}
           >
             Users
-          </button>
-        </div>
-        <div className="flex gap-2">
-          <button 
-            onClick={() => setStatusFilter('all')}
-            className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-              statusFilter === 'all'
-                ? 'border-blue-200 bg-blue-50 text-blue-700'
-                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            All Status
-          </button>
-          <button 
-            onClick={() => setStatusFilter('active')}
-            className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-              statusFilter === 'active'
-                ? 'border-green-200 bg-green-50 text-green-700'
-                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            Active
-          </button>
-          <button 
-            onClick={() => setStatusFilter('suspended')}
-            className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-              statusFilter === 'suspended'
-                ? 'border-red-200 bg-red-50 text-red-700'
-                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            Suspended
           </button>
         </div>
       </div>

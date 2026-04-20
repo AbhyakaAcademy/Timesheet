@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Sum
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.text import slugify
@@ -57,6 +58,7 @@ class TenantOverviewView(APIView):
             "activeUsers": active_users,
             "activeDepartments": departments.filter(status="Active").count(),
             "pendingDepartments": departments.filter(status="Pending").count(),
+            "activePolicies": organization.policies.filter(enabled=True).count(),
             "currentPlan": subscription.plan_name,
             "licenses": subscription.licenses,
             "usagePercent": round((active_users / max(subscription.licenses, 1)) * 100),
@@ -265,7 +267,7 @@ class TenantBillingRatesView(APIView):
             organization=organization,
             role=request.data.get("role", ""),
             project_name=request.data.get("project_name") or request.data.get("project") or "All Projects",
-            hourly_rate=request.data.get("hourly_rate") or request.data.get("rate") or 0,
+            hourly_rate=_parse_decimal_amount(request.data.get("hourly_rate") or request.data.get("rate") or 0),
             rate_type=request.data.get("rate_type") or request.data.get("type") or "Hourly",
             is_active=request.data.get("is_active", True),
         )
@@ -290,7 +292,7 @@ class TenantBillingRateDetailView(APIView):
         if "project_name" in request.data or "project" in request.data:
             rate.project_name = request.data.get("project_name") or request.data.get("project")
         if "hourly_rate" in request.data or "rate" in request.data:
-            rate.hourly_rate = request.data.get("hourly_rate") or request.data.get("rate")
+            rate.hourly_rate = _parse_decimal_amount(request.data.get("hourly_rate") or request.data.get("rate"))
         if "rate_type" in request.data or "type" in request.data:
             rate.rate_type = request.data.get("rate_type") or request.data.get("type")
         if "is_active" in request.data:
@@ -407,7 +409,9 @@ class TenantSubscriptionView(APIView):
         if "licenses" in request.data:
             subscription.licenses = int(request.data["licenses"])
         if "monthly_recurring_revenue" in request.data or "monthlyRevenue" in request.data:
-            subscription.monthly_recurring_revenue = request.data.get("monthly_recurring_revenue") or request.data.get("monthlyRevenue")
+            subscription.monthly_recurring_revenue = _parse_decimal_amount(
+                request.data.get("monthly_recurring_revenue") or request.data.get("monthlyRevenue")
+            )
         if "status" in request.data:
             subscription.status = request.data["status"]
         if "payment_status" in request.data or "paymentStatus" in request.data:
@@ -465,6 +469,18 @@ class TenantSettingsView(APIView):
                     setattr(organization, field, value)
                     break
         organization.save()
+
+        profile_payload = request.data.get("adminProfile") or request.data.get("profile")
+        if isinstance(profile_payload, dict):
+            profile_user = _get_admin_profile_user(organization, request.user)
+            if "name" in profile_payload:
+                first_name, last_name = _split_name(profile_payload.get("name"))
+                profile_user.first_name = first_name
+                profile_user.last_name = last_name
+            if "email" in profile_payload:
+                profile_user.email = profile_payload.get("email") or profile_user.email
+            profile_user.save()
+
         _log_action(
             organization=organization,
             actor=request.user,
@@ -700,10 +716,27 @@ class AdminSettingsView(APIView):
 def _get_request_organization(user):
     if getattr(user, "organization_id", None):
         return user.organization
-    if user.role == UserRole.ADMIN:
+    if user.role in (UserRole.ADMIN, UserRole.TENANT):
         organization = TenantOrganization.objects.order_by("id").first()
-        if organization:
-            return organization
+        if organization is None:
+            organization = TenantOrganization.objects.create(
+                name="Acme Corporation",
+                contact_email=user.email or "",
+            )
+            TenantSubscription.objects.get_or_create(
+                organization=organization,
+                defaults={
+                    "plan_name": "Enterprise",
+                    "billing_cycle": "Annual",
+                    "licenses": 500,
+                    "monthly_recurring_revenue": Decimal("649.00"),
+                    "renewal_date": timezone.now().date() + timedelta(days=30),
+                    "history": ["Subscription initialized"],
+                },
+            )
+        user.organization = organization
+        user.save(update_fields=["organization"])
+        return organization
     raise ValidationError({"organization": "No tenant organization is linked to this user."})
 
 
@@ -716,22 +749,48 @@ def _resolve_organization(value, fallback=None):
 def _resolve_org_user(organization, value):
     if value in (None, ""):
         return None
-    return get_object_or_404(User, id=value, organization=organization)
+    text_value = str(value).strip()
+    if text_value.isdigit():
+        return get_object_or_404(User, id=text_value, organization=organization)
+
+    user = (
+        User.objects.filter(organization=organization)
+        .filter(Q(email__iexact=text_value) | Q(username__iexact=text_value))
+        .first()
+    )
+    if user:
+        return user
+
+    for candidate in User.objects.filter(organization=organization):
+        if (candidate.get_full_name() or "").strip().lower() == text_value.lower():
+            return candidate
+    return None
+
+
+def _parse_decimal_amount(value):
+    if isinstance(value, Decimal):
+        return value
+    cleaned = "".join(ch for ch in str(value or "") if ch.isdigit() or ch == ".")
+    return Decimal(cleaned or "0")
 
 
 def _build_admin_profile(organization, fallback_user):
-    user = (
-        User.objects.filter(organization=organization, role__in=[UserRole.TENANT, UserRole.ADMIN])
-        .order_by("id")
-        .first()
-        or fallback_user
-    )
+    user = _get_admin_profile_user(organization, fallback_user)
     return {
         "name": user.get_full_name() or user.username,
         "role": "Tenant Admin" if user.role == UserRole.TENANT else user.role.title(),
         "email": user.email,
         "phone": organization.contact_phone,
     }
+
+
+def _get_admin_profile_user(organization, fallback_user):
+    return (
+        User.objects.filter(organization=organization, role__in=[UserRole.TENANT, UserRole.ADMIN])
+        .order_by("id")
+        .first()
+        or fallback_user
+    )
 
 
 def _get_or_create_subscription(organization):

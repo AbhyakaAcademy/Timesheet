@@ -56,6 +56,15 @@ export default function Header() {
     setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
   }
 
+  function handleClearAllNotifications() {
+    setNotifications([]);
+    setOpen(false);
+  }
+
+  function handleClearNotification(notificationId) {
+    setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+  }
+
   function handleToggleNotifications() {
     setSettingsOpen(false);
     setOpen((prev) => !prev);
@@ -140,10 +149,10 @@ export default function Header() {
                 <h2 className="font-semibold text-gray-900">Notifications</h2>
                 <button
                   type="button"
-                  onClick={markAllAsRead}
+                  onClick={handleClearAllNotifications}
                   className="text-xs font-medium text-blue-600 hover:text-blue-700"
                 >
-                  Mark all read
+                  Clear
                 </button>
               </div>
 
@@ -155,7 +164,17 @@ export default function Header() {
                       item.read ? "bg-white" : "bg-blue-50"
                     }`}
                   >
-                    <p className="text-sm text-gray-900">{item.message}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm text-gray-900">{item.message}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleClearNotification(item.id)}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-xs font-semibold leading-none text-gray-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                        aria-label="Clear notification"
+                      >
+                        x
+                      </button>
+                    </div>
                     <p className="mt-1 text-xs text-gray-500">{item.time}</p>
                   </li>
                 ))}

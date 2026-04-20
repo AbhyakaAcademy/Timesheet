@@ -9,7 +9,6 @@ export function Users() {
   const [users, setUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedUser, setSelectedUser] = useState(null);
   const [showViewDialog, setShowViewDialog] = useState(false);
   const [showUserDialog, setShowUserDialog] = useState(false);
@@ -52,10 +51,9 @@ export function Users() {
         const company = user.organization_name || "";
         const matchesSearch = `${user.name} ${user.email} ${company}`.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesRole = roleFilter === "all" || user.role.toLowerCase() === roleFilter.toLowerCase();
-        const matchesStatus = statusFilter === "all" || user.status.toLowerCase() === statusFilter.toLowerCase();
-        return matchesSearch && matchesRole && matchesStatus;
+        return matchesSearch && matchesRole;
       }),
-    [roleFilter, searchQuery, statusFilter, users]
+    [roleFilter, searchQuery, users]
   );
 
   const openAddUser = () => {
@@ -119,7 +117,6 @@ export function Users() {
           <input type="text" placeholder="Search users..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-10 pr-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
         <div className="flex gap-2">{["all", "admin", "tenant", "employee", "manager", "finance"].map((role) => <button key={role} onClick={() => setRoleFilter(role)} className={`rounded-lg border px-4 py-2 text-sm font-medium ${roleFilter === role ? "border-blue-200 bg-blue-50 text-blue-700" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}>{role === "all" ? "All Roles" : role.charAt(0).toUpperCase() + role.slice(1)}</button>)}</div>
-        <div className="flex gap-2">{["all", "active", "inactive"].map((status) => <button key={status} onClick={() => setStatusFilter(status)} className={`rounded-lg border px-4 py-2 text-sm font-medium ${statusFilter === status ? "border-blue-200 bg-blue-50 text-blue-700" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`}>{status === "all" ? "All Status" : status.charAt(0).toUpperCase() + status.slice(1)}</button>)}</div>
       </div>
 
       <div className="rounded-xl bg-white shadow-sm border border-gray-100">

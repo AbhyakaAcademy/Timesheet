@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { clearSession } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
-import { getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
+import { clearClientNotification, clearClientNotifications, getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
 
 export default function Header() {
   const router = useRouter();
@@ -37,7 +37,7 @@ export default function Header() {
       };
     }
   });
-  const [managerProfile] = useState(() => {
+  const [managerProfile, setManagerProfile] = useState(() => {
     if (typeof window === "undefined") {
       return {
         name: "Manager",
@@ -52,6 +52,8 @@ export default function Header() {
       role: "Manager",
     };
   });
+  const [profileDraft, setProfileDraft] = useState(managerProfile);
+  const [profileEditing, setProfileEditing] = useState(false);
   const popoverRef = useRef(null);
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export default function Header() {
           (items || []).map((item) => ({
             id: `api-${item.id}`,
             apiId: item.id,
+            source: "api",
             message: `${item.title}: ${item.message}`,
             time: new Date(item.created_at).toLocaleString("en-US", {
               month: "short",
@@ -112,6 +115,7 @@ export default function Header() {
         .filter((item) => item.clientName === "Manager Dashboard")
         .map((item) => ({
           id: String(item.id),
+          source: "support",
           message: `${item.title}: ${item.message}`,
           time: new Date(item.time).toLocaleString("en-US", {
             month: "short",
@@ -139,6 +143,24 @@ export default function Header() {
     [combinedNotifications],
   );
   const managerInitial = managerProfile.name.trim().charAt(0).toUpperCase() || "M";
+
+  function openProfile() {
+    setProfileDraft(managerProfile);
+    setProfileEditing(false);
+    setProfileOpen(true);
+  }
+
+  function saveProfile() {
+    const nextProfile = {
+      ...managerProfile,
+      name: profileDraft.name.trim() || managerProfile.name,
+      email: profileDraft.email.trim() || managerProfile.email,
+    };
+    setManagerProfile(nextProfile);
+    window.localStorage.setItem("userName", nextProfile.name);
+    window.localStorage.setItem("userEmail", nextProfile.email);
+    setProfileEditing(false);
+  }
 
   function handleToggleNotifications() {
     setSettingsOpen(false);
@@ -173,6 +195,29 @@ export default function Header() {
     }
   }
 
+  function handleClearNotification(item) {
+    if (item.source === "api" && item.apiId) {
+      setNotifications((prev) => prev.filter((notification) => notification.apiId !== item.apiId));
+      apiFetch(`/notifications/${item.apiId}`, { method: "DELETE" }).catch(() => {});
+      return;
+    }
+
+    clearClientNotification(item.id);
+    setSupportNotifications(getClientNotifications());
+  }
+
+  function handleClearAllNotifications() {
+    const apiIds = notifications.filter((item) => item.apiId).map((item) => item.apiId);
+    setNotifications([]);
+    clearClientNotifications("Manager Dashboard");
+    setSupportNotifications(getClientNotifications());
+    setOpen(false);
+
+    apiIds.forEach((id) => {
+      apiFetch(`/notifications/${id}`, { method: "DELETE" }).catch(() => {});
+    });
+  }
+
   function handleLogout() {
     clearSession();
     router.push("/login");
@@ -184,7 +229,7 @@ export default function Header() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setProfileOpen(true)}
+            onClick={openProfile}
             className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-base font-semibold text-white shadow-sm transition hover:bg-blue-700"
             aria-label="Open manager profile"
             title="Manager Profile"
@@ -248,10 +293,10 @@ export default function Header() {
                 <h2 className="font-semibold text-gray-900">Notifications</h2>
                 <button
                   type="button"
-                  onClick={markAllAsRead}
+                  onClick={handleClearAllNotifications}
                   className="text-xs font-medium text-blue-600 hover:text-blue-700"
                 >
-                  Mark all read
+                  Clear
                 </button>
               </div>
 
@@ -267,9 +312,14 @@ export default function Header() {
                       <p className={`text-sm ${item.read ? "font-normal text-gray-900" : "font-semibold text-gray-950"}`}>
                         {item.message}
                       </p>
-                      {!item.read ? (
-                        <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-blue-600" aria-hidden="true" />
-                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => handleClearNotification(item)}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-xs font-semibold leading-none text-gray-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                        aria-label="Clear notification"
+                      >
+                        x
+                      </button>
                     </div>
                     <p className={`mt-1 text-xs ${item.read ? "text-gray-500" : "font-medium text-blue-700"}`}>{item.time}</p>
                   </li>
@@ -325,7 +375,7 @@ export default function Header() {
             <div className="flex items-start justify-between border-b border-gray-200 px-5 py-4">
               <div>
                 <p className="text-sm font-medium text-blue-600">Manager Profile</p>
-                <h2 className="mt-1 text-xl font-semibold text-gray-900">{managerProfile.name}</h2>
+                <h2 className="mt-1 text-xl font-semibold text-gray-900">Profile</h2>
               </div>
               <button
                 type="button"
@@ -340,28 +390,55 @@ export default function Header() {
             </div>
 
             <div className="space-y-4 px-5 py-5">
-              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Name</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">{managerProfile.name}</p>
-              </div>
-              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Email</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">{managerProfile.email}</p>
-              </div>
-              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Role</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">{managerProfile.role}</p>
-              </div>
+              {profileEditing ? (
+                <>
+                  <label className="block">
+                    <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Name</span>
+                    <input
+                      value={profileDraft.name}
+                      onChange={(event) => setProfileDraft((prev) => ({ ...prev, name: event.target.value }))}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Email</span>
+                    <input
+                      type="email"
+                      value={profileDraft.email}
+                      onChange={(event) => setProfileDraft((prev) => ({ ...prev, email: event.target.value }))}
+                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Name</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{managerProfile.name}</p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Email</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">{managerProfile.email}</p>
+                  </div>
+                </>
+              )}
             </div>
 
-            <div className="flex justify-end border-t border-gray-200 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setProfileOpen(false)}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
-              >
-                Close
-              </button>
+            <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
+              {profileEditing ? (
+                <>
+                  <button type="button" onClick={() => setProfileEditing(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                    Cancel
+                  </button>
+                  <button type="button" onClick={saveProfile} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">
+                    Save
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={() => setProfileEditing(true)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">
+                  Edit
+                </button>
+              )}
             </div>
           </section>
         </div>

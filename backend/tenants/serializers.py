@@ -111,7 +111,7 @@ class TenantBillingRateSerializer(serializers.ModelSerializer):
         fields = ("id", "role", "project_name", "project", "hourly_rate", "rate", "rate_type", "type", "is_active")
 
     def get_rate(self, obj):
-        return f"Rs {obj.hourly_rate}"
+        return f"INR {obj.hourly_rate}/hour"
 
 
 class TenantOvertimeRuleSerializer(serializers.ModelSerializer):

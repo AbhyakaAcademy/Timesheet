@@ -1,29 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import {
-  Bell,
-  Building2,
-  Clock,
-  CreditCard,
-  Download,
-  LogOut,
-  Plus,
-  RefreshCcw,
-  Save,
-  Settings,
-  Shield,
-  Users,
-  X,
-} from "lucide-react";
+import { Bell, Clock, Download, LogOut, Pencil, Settings, Trash2 } from "lucide-react";
+import jsPDF from "jspdf";
 import RouteGuard from "@/components/auth/RouteGuard";
-import HelpButton from "@/components/support/HelpButton";
 import { clearSession } from "@/lib/auth";
-import { formatCurrency, tenantApi } from "@/lib/adminTenantApi";
-import { getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
+import { tenantApi } from "@/lib/adminTenantApi";
 
 const navItems = [
   "Dashboard",
@@ -32,1286 +15,1854 @@ const navItems = [
   "Policies",
   "Billing & Subscription",
   "Audit Logs",
-  "Settings",
 ];
 
-const settingsTabs = ["General Settings", "Billing Rates", "Overtime Rules", "Branding"];
-const defaultUserForm = { id: null, name: "", email: "", role: "Employee", department: "General", status: "Active" };
-const defaultDepartmentForm = { id: null, name: "", head: "", status: "Active" };
-const defaultPolicyForm = { id: null, title: "", description: "", appliesTo: "All users" };
-const defaultBillingRateForm = { id: null, role: "", project: "All Projects", rate: "2500", type: "Hourly" };
-const defaultOvertimeRuleForm = { id: null, title: "", threshold: "After 40 hours", multiplier: "1.5x", appliesTo: "All Employees" };
-const defaultSubscriptionForm = { currentPlan: "Enterprise", billingCycle: "Annual", licenses: 0 };
-const defaultGeneralSettingsForm = { tenantName: "", timeZone: "", currency: "", weekStart: "", payPeriod: "", maxHours: "" };
-const defaultBrandingForm = { logoText: "", primary: "", secondary: "", footerNotes: "" };
+const initialUsers = [
+  { id: 1, name: "Sarah Johnson", email: "sarah.johnson@company.com", role: "Admin", status: "Active", department: "Engineering" },
+  { id: 2, name: "Michael Chen", email: "michael.chen@company.com", role: "Manager", status: "Active", department: "Sales" },
+  { id: 3, name: "Emily Davis", email: "emily.davis@company.com", role: "Employee", status: "Active", department: "Marketing" },
+  { id: 4, name: "Robert Wilson", email: "robert.wilson@company.com", role: "Employee", status: "Active", department: "Engineering" },
+  { id: 5, name: "Jennifer Lee", email: "jennifer.lee@company.com", role: "Manager", status: "Inactive", department: "HR" },
+  { id: 6, name: "David Martinez", email: "david.martinez@company.com", role: "Employee", status: "Active", department: "Finance" },
+  { id: 7, name: "Lisa Anderson", email: "lisa.anderson@company.com", role: "Employee", status: "Active", department: "Operations" },
+  { id: 8, name: "James Taylor", email: "james.taylor@company.com", role: "Admin", status: "Active", department: "IT" },
+];
+
+const initialDepartments = [
+  { id: 1, name: "Engineering", head: "Sarah Johnson", employees: "24 members", created: "Created Jan 2024" },
+  { id: 2, name: "Sales", head: "Michael Chen", employees: "18 members", created: "Created Feb 2024" },
+  { id: 3, name: "Marketing", head: "Emily Davis", employees: "12 members", created: "Created Mar 2024" },
+  { id: 4, name: "Finance", head: "David Martinez", employees: "8 members", created: "Created Apr 2024" },
+];
+
+const initialPolicies = [
+  {
+    id: 1,
+    title: "Working Hours Policy",
+    description: "Defines standard working hours, break times, and flexible work arrangements",
+    details: "Standard work is 9:00 AM to 6:00 PM with a one-hour lunch break. Flexible start times are allowed with manager approval.",
+    appliesTo: "All departments",
+    updated: "Jan 15, 2026",
+    enabled: true,
+  },
+  {
+    id: 2,
+    title: "Approval Workflow Rules",
+    description: "Multi-level approval process for timesheets, time-off requests, and overtime",
+    details: "Employee submissions go to the reporting manager first. Overtime and exceptions require second-level approval from department heads.",
+    appliesTo: "Managers & above",
+    updated: "Dec 20, 2025",
+    enabled: true,
+  },
+  {
+    id: 3,
+    title: "Access Control Policy",
+    description: "Role-based access permissions for system features and data visibility",
+    details: "Employees can access their own records, managers can review their teams, and admins can configure organization-wide settings.",
+    appliesTo: "All users",
+    updated: "Jan 1, 2026",
+    enabled: true,
+  },
+  {
+    id: 4,
+    title: "Time-off Policy",
+    description: "Leave accrual, request, and approval policies for different leave types",
+    details: "Leave requests must be submitted before planned absence. Emergency leave can be regularized after manager review.",
+    appliesTo: "All employees",
+    updated: "Nov 30, 2025",
+    enabled: true,
+  },
+];
+
+const invoices = [
+  { number: "INV-2026-02", date: "Feb 1, 2026", plan: "Enterprise", amount: "INR 1,87,500" },
+  { number: "INV-2026-01", date: "Jan 1, 2026", plan: "Enterprise", amount: "INR 1,87,500" },
+];
+
+const subscriptionRegionMeta = {
+  IN: { label: "India", symbol: "INR ", code: "INR", locale: "en-IN", multiplier: 1 },
+  US: { label: "United States", symbol: "$", code: "USD", locale: "en-US", multiplier: 0.012 },
+  UK: { label: "United Kingdom", symbol: "GBP ", code: "GBP", locale: "en-GB", multiplier: 0.0095 },
+};
+
+const subscriptionPlans = [
+  {
+    key: "starter",
+    name: "Starter",
+    monthlyMin: 149,
+    monthlyMax: 249,
+    annualMin: 1520,
+    annualMax: 2540,
+    seats: "Up to 25 users",
+    usage: "42 / 100 licenses used (42%)",
+    available: "58 licenses available",
+    support: "Email support",
+    description: "Small teams",
+    features: ["Time capture", "Projects", "Manager approvals", "Basic reports", "CSV export"],
+  },
+  {
+    key: "professional",
+    name: "Professional",
+    monthlyMin: 349,
+    monthlyMax: 599,
+    annualMin: 3560,
+    annualMax: 6110,
+    seats: "Up to 100 users",
+    usage: "96 / 250 licenses used (38%)",
+    available: "154 licenses available",
+    support: "Priority support",
+    description: "For growing organizations",
+    features: ["Up to 100 users", "Advanced analytics", "Custom workflows", "Priority support", "API access", "Single Sign-On"],
+  },
+  {
+    key: "enterprise",
+    name: "Enterprise",
+    custom: true,
+    seats: "Unlimited users",
+    usage: "156 / 500 licenses used (31%)",
+    available: "344 licenses available",
+    support: "Dedicated support",
+    description: "For large enterprises",
+    features: ["Unlimited users", "White-label options", "Dedicated support", "Custom integrations", "SLA guarantee", "Advanced security"],
+  },
+];
+
+const settingTabs = ["General Settings", "Billing Rates", "Overtime Rules", "Branding"];
+
+const initialBillingRates = [
+  { id: 1, role: "Software Engineer", project: "All Projects", rate: "INR 2,500/hour", type: "Hourly" },
+  { id: 2, role: "Senior Software Engineer", project: "All Projects", rate: "INR 3,500/hour", type: "Hourly" },
+  { id: 3, role: "Project Manager", project: "All Projects", rate: "INR 4,000/hour", type: "Hourly" },
+  { id: 4, role: "Designer", project: "Project Alpha", rate: "INR 2,000/hour", type: "Hourly" },
+  { id: 5, role: "QA Engineer", project: "All Projects", rate: "INR 1,800/hour", type: "Hourly" },
+  { id: 6, role: "DevOps Engineer", project: "Infrastructure", rate: "INR 3,200/hour", type: "Hourly" },
+];
+
+const initialOvertimeRules = [
+  { id: 1, name: "Standard Overtime", threshold: "After 40 hours", multiplier: "1.5x", appliesTo: "Hourly Staff", active: true },
+  { id: 2, name: "Weekend Overtime", threshold: "Any hours", multiplier: "2.0x", appliesTo: "All Employees", active: true },
+  { id: 3, name: "Holiday Overtime", threshold: "Any hours", multiplier: "2.5x", appliesTo: "All Employees", active: true },
+];
+
+const defaultSettings = {
+  tenantName: "Acme Corporation",
+  timeZone: "India Standard Time (IST) - UTC +5:30",
+  currency: "Indian Rupee (INR)",
+  weekStart: "Monday",
+  payPeriod: "Monthly",
+  rounding: "15 minutes",
+  maxHours: "12 hours",
+  dateFormat: "DD-MM-YYYY (Indian format)",
+};
+
+const fallbackAuditLog = {
+  timestamp: "Feb 5, 2026 10:42 AM",
+  user: "Sarah Johnson",
+  email: "sarah.johnson@company.com",
+  action: "Created user account",
+  resource: "john.doe@company.com",
+  details: "New user John Doe was added to the Engineering department with Employee role.",
+};
+
+const defaultProfile = {
+  name: "Tenant Profile",
+  email: "admin@abhyaka.com",
+  role: "Tenant Admin",
+  phone: "",
+};
+
+function titleCase(value) {
+  if (!value) return "";
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+function normalizeRole(value) {
+  return String(value || "employee").toLowerCase();
+}
+
+function displayRole(value) {
+  return titleCase(String(value || "employee"));
+}
+
+function formatBillingRateValue(value) {
+  const numberValue = Number(value || 0);
+  if (!Number.isFinite(numberValue) || numberValue <= 0) {
+    return "INR 0/hour";
+  }
+  return `INR ${numberValue.toLocaleString("en-IN")}/hour`;
+}
+
+function extractRateNumber(value) {
+  const cleaned = String(value || "").replace(/[^\d.]/g, "");
+  return cleaned || "0";
+}
+
+function normalizeUser(user) {
+  return {
+    id: user.id,
+    name: user.name || user.username || "",
+    email: user.email || "",
+    role: displayRole(user.role),
+    status: user.status || (user.is_active ? "Active" : "Inactive"),
+    department: user.department || "General",
+  };
+}
+
+function normalizeDepartment(department) {
+  return {
+    id: department.id,
+    name: department.name || "",
+    head: department.head_name || department.headName || department.head || "",
+    employees: department.employees || department.totalEmployees || "0 members",
+    status: department.status || "Active",
+    created: department.created || "Created Apr 2026",
+  };
+}
+
+function normalizePolicy(policy) {
+  const detailText = Array.isArray(policy.details) ? policy.details.join(" ") : policy.details;
+  return {
+    id: policy.id,
+    title: policy.title || policy.name || "",
+    description: policy.description || policy.desc || "",
+    details: detailText || policy.description || policy.desc || "",
+    appliesTo: policy.applies_to || policy.appliesTo || policy.applies || "All users",
+    updated: policy.lastUpdated || policy.updated || "Apr 18, 2026",
+    enabled: policy.enabled !== false,
+  };
+}
+
+function normalizeBillingRate(rate) {
+  return {
+    id: rate.id,
+    role: rate.role || "",
+    project: rate.project || rate.project_name || "All Projects",
+    rate: formatBillingRateValue(rate.hourly_rate || extractRateNumber(rate.rate)),
+    type: rate.type || rate.rate_type || "Hourly",
+  };
+}
+
+function normalizeOvertimeRule(rule) {
+  return {
+    id: rule.id,
+    name: rule.name || rule.title || "",
+    threshold: rule.threshold || "",
+    multiplier: rule.multiplier || "",
+    appliesTo: rule.appliesTo || rule.applies_to || "All Employees",
+    active: rule.active !== false,
+  };
+}
+
+function normalizeSettings(payload) {
+  const organization = payload?.organization || payload || {};
+  return {
+    tenantName: organization.tenantName || organization.name || defaultSettings.tenantName,
+    timeZone: organization.timeZone || organization.timezone || defaultSettings.timeZone,
+    currency: organization.currency || defaultSettings.currency,
+    weekStart: organization.weekStart || organization.week_start || defaultSettings.weekStart,
+    payPeriod: organization.payPeriod || organization.pay_period || defaultSettings.payPeriod,
+    rounding: organization.rounding || defaultSettings.rounding,
+    maxHours: organization.maxHours || `${organization.max_hours || 12} hours`,
+    dateFormat: organization.dateFormat || organization.date_format || defaultSettings.dateFormat,
+  };
+}
+
+function normalizeSubscription(subscription) {
+  const currentPlanName = subscription?.currentPlan || subscription?.plan_name || "Enterprise";
+  const matchedPlan =
+    subscriptionPlans.find((plan) => plan.name.toLowerCase() === String(currentPlanName).toLowerCase()) ||
+    subscriptionPlans[2];
+  const billingCycle = subscription?.billingCycle || subscription?.billing_cycle || "Annual";
+
+  return {
+    plan: matchedPlan,
+    billing: String(billingCycle).toLowerCase().startsWith("month") ? "monthly" : "annual",
+  };
+}
+
+function normalizeProfile(profile) {
+  return {
+    name: profile?.name || defaultProfile.name,
+    email: profile?.email || defaultProfile.email,
+    role: profile?.role || defaultProfile.role,
+    phone: profile?.phone || defaultProfile.phone,
+  };
+}
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [active, setActive] = useState("Dashboard");
+  const [active, setActive] = useState("Users");
   const [settingsTab, setSettingsTab] = useState("General Settings");
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
+  const [users, setUsers] = useState(initialUsers);
+  const [departments, setDepartments] = useState(initialDepartments);
+  const [policies, setPolicies] = useState(initialPolicies);
+  const [billingRates, setBillingRates] = useState(initialBillingRates);
+  const [overtimeRules, setOvertimeRules] = useState(initialOvertimeRules);
+  const [subscriptionPlan, setSubscriptionPlan] = useState(subscriptionPlans[2]);
+  const [subscriptionRegion, setSubscriptionRegion] = useState("IN");
+  const [subscriptionBilling, setSubscriptionBilling] = useState("annual");
+  const [settings, setSettings] = useState(defaultSettings);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [allNotifications, setAllNotifications] = useState(() => getClientNotifications());
-  const [dialog, setDialog] = useState(null);
-  const [userForm, setUserForm] = useState(defaultUserForm);
-  const [departmentForm, setDepartmentForm] = useState(defaultDepartmentForm);
-  const [policyForm, setPolicyForm] = useState(defaultPolicyForm);
-  const [billingRateForm, setBillingRateForm] = useState(defaultBillingRateForm);
-  const [overtimeRuleForm, setOvertimeRuleForm] = useState(defaultOvertimeRuleForm);
-  const [subscriptionForm, setSubscriptionForm] = useState(defaultSubscriptionForm);
-  const [generalSettingsForm, setGeneralSettingsForm] = useState(defaultGeneralSettingsForm);
-  const [brandingForm, setBrandingForm] = useState(defaultBrandingForm);
-
+  const [toast, setToast] = useState("");
+  const [modal, setModal] = useState(null);
   const [overview, setOverview] = useState(null);
-  const [users, setUsers] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [policies, setPolicies] = useState([]);
-  const [billingRates, setBillingRates] = useState([]);
-  const [overtimeRules, setOvertimeRules] = useState([]);
-  const [subscription, setSubscription] = useState(null);
-  const [tenantSettings, setTenantSettings] = useState(null);
-  const [adminProfile, setAdminProfile] = useState(null);
-  const [auditLogs, setAuditLogs] = useState([]);
+  const [profile, setProfile] = useState(defaultProfile);
+  const [auditLogs, setAuditLogs] = useState([fallbackAuditLog]);
+  const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState([
+    { id: 1, title: "Subscription", message: "Enterprise plan renews on Mar 1, 2026." },
+    { id: 2, title: "Policy", message: "Working Hours Policy was updated recently." },
+  ]);
 
-  const tenantName = tenantSettings?.organization?.tenantName || overview?.organization || "Tenant";
-  const unreadNotifications = useMemo(
-    () => allNotifications.filter((item) => item.clientName === tenantName && !item.read).length,
-    [allNotifications, tenantName]
-  );
-
-  useEffect(() => {
-    const unsubscribe = subscribeToClientNotifications(setAllNotifications);
-    return unsubscribe;
-  }, []);
-
-  useEffect(() => {
-    if (!toast) return undefined;
-    const timer = window.setTimeout(() => setToast(""), 1800);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
-  useEffect(() => {
-    loadDashboard();
-  }, []);
-
-  async function loadDashboard(showRefreshState = false) {
-    if (showRefreshState) setRefreshing(true);
-    else setLoading(true);
-    setError("");
-
-    try {
-      const [
-        overviewData,
-        usersData,
-        departmentsData,
-        policiesData,
-        billingRatesData,
-        overtimeRulesData,
-        subscriptionData,
-        settingsData,
-        auditLogsData,
-      ] = await Promise.all([
-        tenantApi.overview(),
-        tenantApi.users(),
-        tenantApi.departments(),
-        tenantApi.policies(),
-        tenantApi.billingRates(),
-        tenantApi.overtimeRules(),
-        tenantApi.subscription(),
-        tenantApi.settings(),
-        tenantApi.auditLogs(),
-      ]);
-
-      setOverview(overviewData);
-      setUsers(usersData);
-      setDepartments(departmentsData);
-      setPolicies(policiesData);
-      setBillingRates(billingRatesData);
-      setOvertimeRules(overtimeRulesData);
-      setSubscription(subscriptionData);
-      setTenantSettings(settingsData);
-      setAdminProfile(settingsData.adminProfile || overviewData.adminProfile || null);
-      setAuditLogs(auditLogsData);
-    } catch (err) {
-      setError(err.message || "Failed to load tenant dashboard.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
-
-  function notify(message) {
+  const showToast = useCallback((message) => {
     setToast(message);
-  }
+    window.setTimeout(() => setToast(""), 1800);
+  }, []);
 
-  function toggleNotifications() {
-    const nextValue = !showNotifications;
-    setShowNotifications(nextValue);
-    if (nextValue && unreadNotifications > 0) {
-      markClientNotificationsRead(tenantName);
-      setAllNotifications(getClientNotifications());
-    }
-  }
+  useEffect(() => {
+    let isMounted = true;
 
-  function handleLogout() {
-    clearSession();
-    router.push("/login");
-  }
+    async function loadTenantData() {
+      setLoading(true);
+      try {
+        const [
+          overviewData,
+          usersData,
+          departmentsData,
+          policiesData,
+          billingRatesData,
+          overtimeRulesData,
+          subscriptionData,
+          settingsData,
+          auditLogsData,
+        ] = await Promise.all([
+          tenantApi.overview(),
+          tenantApi.users(),
+          tenantApi.departments(),
+          tenantApi.policies(),
+          tenantApi.billingRates(),
+          tenantApi.overtimeRules(),
+          tenantApi.subscription(),
+          tenantApi.settings(),
+          tenantApi.auditLogs(),
+        ]);
 
-  function closeDialog() {
-    setDialog(null);
-  }
+        if (!isMounted) return;
 
-  function openUserDialog(user = null) {
-    setUserForm(
-      user
-        ? {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            department: user.department,
-            status: user.status,
-          }
-        : { ...defaultUserForm, department: departments[0]?.name || "General" }
-    );
-    setDialog("user");
-  }
-
-  async function submitUserForm() {
-    if (!userForm.name.trim() || !userForm.email.trim()) {
-      notify("Name and email are required");
-      return;
-    }
-
-    try {
-      const payload = {
-        name: userForm.name,
-        email: userForm.email,
-        role: userForm.role,
-        department: userForm.department,
-        status: userForm.status,
-      };
-      const created = userForm.id
-        ? await tenantApi.updateUser(userForm.id, payload)
-        : await tenantApi.createUser(payload);
-      if (userForm.id) {
-        setUsers((prev) => prev.map((item) => (item.id === userForm.id ? created : item)));
-        notify("User updated");
-      } else {
-        setUsers((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
-        notify("User saved to PostgreSQL");
+        const normalizedSubscription = normalizeSubscription(subscriptionData);
+        setOverview(overviewData);
+        setUsers((usersData || []).map(normalizeUser));
+        setDepartments((departmentsData || []).map(normalizeDepartment));
+        setPolicies((policiesData || []).map(normalizePolicy));
+        setBillingRates((billingRatesData || []).map(normalizeBillingRate));
+        setOvertimeRules((overtimeRulesData || []).map(normalizeOvertimeRule));
+        setSubscriptionPlan(normalizedSubscription.plan);
+        setSubscriptionBilling(normalizedSubscription.billing);
+        setSettings(normalizeSettings(settingsData));
+        setProfile(normalizeProfile(settingsData?.adminProfile || overviewData?.adminProfile));
+        setAuditLogs(auditLogsData?.length ? auditLogsData : [fallbackAuditLog]);
+      } catch (error) {
+        if (isMounted) {
+          showToast(error.message || "Tenant data could not load");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
-      closeDialog();
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not save user");
     }
-  }
 
-  async function handleToggleUser(user) {
-    const nextStatus = user.status === "Active" ? "Inactive" : "Active";
-    if (!window.confirm(`${nextStatus} ${user.name}?`)) return;
+    loadTenantData();
+    return () => {
+      isMounted = false;
+    };
+  }, [showToast]);
+
+  const saveUser = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const payload = {
+      name: formData.get("name"),
+      email: formData.get("email"),
+      role: normalizeRole(formData.get("role")),
+      status: formData.get("status"),
+      department: formData.get("department"),
+    };
 
     try {
-      const updated = await tenantApi.updateUser(user.id, { status: nextStatus });
-      setUsers((prev) => prev.map((item) => (item.id === user.id ? updated : item)));
-      notify(`User ${nextStatus.toLowerCase()}`);
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not update user");
-    }
-  }
-
-  async function handleDeleteUser(user) {
-    if (!window.confirm(`Delete ${user.name}?`)) return;
-
-    try {
-      await tenantApi.deleteUser(user.id);
-      setUsers((prev) => prev.filter((item) => item.id !== user.id));
-      notify("User deleted");
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not delete user");
-    }
-  }
-
-  function openDepartmentDialog(department = null) {
-    setDepartmentForm(
-      department
-        ? {
-            id: department.id,
-            name: department.name,
-            head: department.head || "",
-            status: department.status,
-          }
-        : defaultDepartmentForm
-    );
-    setDialog("department");
-  }
-
-  async function submitDepartmentForm() {
-    if (!departmentForm.name.trim()) {
-      notify("Department name is required");
-      return;
-    }
-
-    try {
-      const payload = {
-        name: departmentForm.name,
-        head: departmentForm.head ? Number(departmentForm.head) : null,
-        status: departmentForm.status,
-      };
-      const result = departmentForm.id
-        ? await tenantApi.updateDepartment(departmentForm.id, payload)
-        : await tenantApi.createDepartment(payload);
-      setDepartments((prev) =>
-        departmentForm.id ? prev.map((item) => (item.id === departmentForm.id ? result : item)) : [...prev, result]
+      const savedUser = modal.item
+        ? await tenantApi.updateUser(modal.item.id, payload)
+        : await tenantApi.createUser(payload);
+      const nextUser = normalizeUser(savedUser);
+      setUsers((current) =>
+        modal.item ? current.map((user) => (user.id === modal.item.id ? nextUser : user)) : [nextUser, ...current]
       );
-      notify(departmentForm.id ? "Department updated" : "Department saved to PostgreSQL");
-      closeDialog();
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not save department");
+      setModal(null);
+      showToast(modal.item ? "User updated" : "User added");
+    } catch (error) {
+      showToast(error.message || "User could not be saved");
     }
-  }
+  };
 
-  async function handleDeleteDepartment(department) {
-    if (!window.confirm(`Delete ${department.name}?`)) return;
+  const toggleUserStatus = async (targetUser) => {
+    const nextStatus = targetUser.status === "Active" ? "Inactive" : "Active";
+    try {
+      const savedUser = await tenantApi.updateUser(targetUser.id, { status: nextStatus });
+      const nextUser = normalizeUser(savedUser);
+      setUsers((current) => current.map((user) => (user.id === targetUser.id ? nextUser : user)));
+      showToast(`${targetUser.name} status updated`);
+    } catch (error) {
+      showToast(error.message || "User status could not be updated");
+    }
+  };
 
+  const saveDepartment = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const payload = {
+      name: formData.get("name"),
+      head: formData.get("head"),
+      status: modal.item?.status || "Active",
+    };
+
+    try {
+      const savedDepartment = modal.item
+        ? await tenantApi.updateDepartment(modal.item.id, payload)
+        : await tenantApi.createDepartment(payload);
+      const nextDepartment = normalizeDepartment(savedDepartment);
+      setDepartments((current) =>
+        modal.item
+          ? current.map((department) => (department.id === modal.item.id ? nextDepartment : department))
+          : [...current, nextDepartment]
+      );
+      setModal(null);
+      showToast(modal.item ? "Department updated" : "Department created");
+    } catch (error) {
+      showToast(error.message || "Department could not be saved");
+    }
+  };
+
+  const deleteDepartment = async (department) => {
     try {
       await tenantApi.deleteDepartment(department.id);
-      setDepartments((prev) => prev.filter((item) => item.id !== department.id));
-      notify("Department deleted");
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not delete department");
+      setDepartments((current) => current.filter((item) => item.id !== department.id));
+      showToast(`${department.name} removed`);
+    } catch (error) {
+      showToast(error.message || "Department could not be removed");
     }
-  }
+  };
 
-  function openPolicyDialog(policy = null) {
-    setPolicyForm(
-      policy
-        ? {
-            id: policy.id,
-            title: policy.title,
-            description: policy.description || policy.desc,
-            appliesTo: policy.applies_to || policy.applies,
-          }
-        : defaultPolicyForm
-    );
-    setDialog("policy");
-  }
-
-  async function submitPolicyForm() {
-    if (!policyForm.title.trim() || !policyForm.description.trim()) {
-      notify("Policy title and description are required");
-      return;
+  const togglePolicy = async (policy) => {
+    try {
+      const savedPolicy = await tenantApi.updatePolicy(policy.id, { enabled: !policy.enabled });
+      const nextPolicy = normalizePolicy(savedPolicy);
+      setPolicies((current) => current.map((item) => (item.id === policy.id ? nextPolicy : item)));
+      showToast(`${policy.title} ${policy.enabled ? "disabled" : "enabled"}`);
+    } catch (error) {
+      showToast(error.message || "Policy status could not be updated");
     }
+  };
+
+  const savePolicy = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const description = formData.get("description");
+    const payload = {
+      title: formData.get("title"),
+      description,
+      details: [description],
+      applies_to: formData.get("appliesTo"),
+      enabled: true,
+    };
 
     try {
-      const payload = {
-        title: policyForm.title,
-        description: policyForm.description,
-        appliesTo: policyForm.appliesTo,
-      };
-      const result = policyForm.id
-        ? await tenantApi.updatePolicy(policyForm.id, payload)
-        : await tenantApi.createPolicy(payload);
-      setPolicies((prev) => (policyForm.id ? prev.map((item) => (item.id === policyForm.id ? result : item)) : [...prev, result]));
-      notify(policyForm.id ? "Policy updated" : "Policy saved to PostgreSQL");
-      closeDialog();
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not save policy");
+      const savedPolicy = await tenantApi.createPolicy(payload);
+      setPolicies((current) => [...current, normalizePolicy(savedPolicy)]);
+      setModal(null);
+      showToast("Policy added");
+    } catch (error) {
+      showToast(error.message || "Policy could not be added");
     }
-  }
+  };
 
-  async function handleTogglePolicy(policy) {
+  const saveSettings = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const nextSettings = {
+      tenantName: formData.get("tenantName"),
+      timeZone: formData.get("timeZone"),
+      currency: formData.get("currency"),
+      weekStart: formData.get("weekStart"),
+      payPeriod: formData.get("payPeriod"),
+      rounding: formData.get("rounding"),
+      maxHours: formData.get("maxHours"),
+      dateFormat: formData.get("dateFormat"),
+    };
     try {
-      const updated = await tenantApi.updatePolicy(policy.id, { enabled: !policy.enabled });
-      setPolicies((prev) => prev.map((item) => (item.id === policy.id ? updated : item)));
-      notify("Policy updated");
-    } catch (err) {
-      notify(err.message || "Could not update policy");
+      const savedSettings = await tenantApi.updateSettings(nextSettings);
+      setSettings(normalizeSettings(savedSettings));
+      showToast("Settings saved");
+    } catch (error) {
+      showToast(error.message || "Settings could not be saved");
     }
-  }
+  };
 
-  async function handleDeletePolicy(policy) {
-    if (!window.confirm(`Delete ${policy.title}?`)) return;
-
-    try {
-      await tenantApi.deletePolicy(policy.id);
-      setPolicies((prev) => prev.filter((item) => item.id !== policy.id));
-      notify("Policy deleted");
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not delete policy");
-    }
-  }
-
-  function openBillingRateDialog(rate = null) {
-    setBillingRateForm(
-      rate
-        ? {
-            id: rate.id,
-            role: rate.role,
-            project: rate.project,
-            rate: String(rate.hourly_rate ?? rate.rate ?? ""),
-            type: rate.type,
-          }
-        : defaultBillingRateForm
-    );
-    setDialog("billingRate");
-  }
-
-  async function submitBillingRateForm() {
-    if (!billingRateForm.role.trim() || !billingRateForm.rate) {
-      notify("Role and rate are required");
-      return;
-    }
+  const saveProfile = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const nextProfile = {
+      name: formData.get("name"),
+      email: formData.get("email"),
+    };
 
     try {
-      const payload = {
-        role: billingRateForm.role,
-        project: billingRateForm.project,
-        rate: billingRateForm.rate,
-        type: billingRateForm.type,
-      };
-      const result = billingRateForm.id
-        ? await tenantApi.updateBillingRate(billingRateForm.id, payload)
+      const savedSettings = await tenantApi.updateSettings({ adminProfile: nextProfile });
+      setProfile(normalizeProfile(savedSettings?.adminProfile || nextProfile));
+      setModal(null);
+      showToast("Tenant profile updated");
+    } catch (error) {
+      showToast(error.message || "Tenant profile could not be updated");
+    }
+  };
+
+  const saveBillingRate = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const payload = {
+      role: formData.get("role"),
+      project_name: formData.get("project"),
+      hourly_rate: extractRateNumber(formData.get("rate")),
+      rate_type: formData.get("type"),
+    };
+
+    try {
+      const savedRate = modal.item
+        ? await tenantApi.updateBillingRate(modal.item.id, payload)
         : await tenantApi.createBillingRate(payload);
-      setBillingRates((prev) => (billingRateForm.id ? prev.map((item) => (item.id === billingRateForm.id ? result : item)) : [...prev, result]));
-      notify(billingRateForm.id ? "Billing rate updated" : "Billing rate saved");
-      closeDialog();
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not save billing rate");
+      const nextRate = normalizeBillingRate(savedRate);
+      setBillingRates((current) =>
+        modal.item ? current.map((rate) => (rate.id === modal.item.id ? nextRate : rate)) : [...current, nextRate]
+      );
+      setModal(null);
+      showToast(modal.item ? "Billing rate updated" : "Billing rate added");
+    } catch (error) {
+      showToast(error.message || "Billing rate could not be saved");
     }
-  }
+  };
 
-  async function handleDeleteBillingRate(rate) {
-    if (!window.confirm(`Delete ${rate.role} / ${rate.project}?`)) return;
-
+  const deleteBillingRate = async (rate) => {
     try {
       await tenantApi.deleteBillingRate(rate.id);
-      setBillingRates((prev) => prev.filter((item) => item.id !== rate.id));
-      notify("Billing rate deleted");
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not delete billing rate");
+      setBillingRates((current) => current.filter((item) => item.id !== rate.id));
+      showToast(`${rate.role} billing rate deleted`);
+    } catch (error) {
+      showToast(error.message || "Billing rate could not be deleted");
     }
-  }
+  };
 
-  function openOvertimeRuleDialog(rule = null) {
-    setOvertimeRuleForm(
-      rule
-        ? {
-            id: rule.id,
-            title: rule.title,
-            threshold: rule.threshold,
-            multiplier: rule.multiplier,
-            appliesTo: rule.applies_to,
-          }
-        : defaultOvertimeRuleForm
-    );
-    setDialog("overtimeRule");
-  }
-
-  async function submitOvertimeRuleForm() {
-    if (!overtimeRuleForm.title.trim()) {
-      notify("Rule title is required");
-      return;
-    }
+  const saveOvertimeRule = async (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const payload = {
+      title: formData.get("name"),
+      threshold: formData.get("threshold"),
+      multiplier: formData.get("multiplier"),
+      applies_to: formData.get("appliesTo"),
+      active: modal.item?.active ?? true,
+    };
 
     try {
-      const payload = {
-        title: overtimeRuleForm.title,
-        threshold: overtimeRuleForm.threshold,
-        multiplier: overtimeRuleForm.multiplier,
-        appliesTo: overtimeRuleForm.appliesTo,
-      };
-      const result = overtimeRuleForm.id
-        ? await tenantApi.updateOvertimeRule(overtimeRuleForm.id, payload)
+      const savedRule = modal.item
+        ? await tenantApi.updateOvertimeRule(modal.item.id, payload)
         : await tenantApi.createOvertimeRule(payload);
-      setOvertimeRules((prev) => (overtimeRuleForm.id ? prev.map((item) => (item.id === overtimeRuleForm.id ? result : item)) : [...prev, result]));
-      notify(overtimeRuleForm.id ? "Overtime rule updated" : "Overtime rule saved");
-      closeDialog();
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not save overtime rule");
+      const nextRule = normalizeOvertimeRule(savedRule);
+      setOvertimeRules((current) =>
+        modal.item ? current.map((rule) => (rule.id === modal.item.id ? nextRule : rule)) : [...current, nextRule]
+      );
+      setModal(null);
+      showToast(modal.item ? "Overtime rule updated" : "Overtime rule added");
+    } catch (error) {
+      showToast(error.message || "Overtime rule could not be saved");
     }
-  }
+  };
 
-  async function handleToggleOvertimeRule(rule) {
-    try {
-      const updated = await tenantApi.updateOvertimeRule(rule.id, { active: !rule.active });
-      setOvertimeRules((prev) => prev.map((item) => (item.id === rule.id ? updated : item)));
-      notify("Overtime rule updated");
-    } catch (err) {
-      notify(err.message || "Could not update overtime rule");
-    }
-  }
-
-  async function handleDeleteOvertimeRule(rule) {
-    if (!window.confirm(`Delete ${rule.title}?`)) return;
-
+  const deleteOvertimeRule = async (rule) => {
     try {
       await tenantApi.deleteOvertimeRule(rule.id);
-      setOvertimeRules((prev) => prev.filter((item) => item.id !== rule.id));
-      notify("Overtime rule deleted");
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not delete overtime rule");
+      setOvertimeRules((current) => current.filter((item) => item.id !== rule.id));
+      showToast(`${rule.name} deleted`);
+    } catch (error) {
+      showToast(error.message || "Overtime rule could not be deleted");
     }
-  }
+  };
 
-  function openSubscriptionDialog() {
-    if (!subscription) return;
-    setSubscriptionForm({
-      currentPlan: subscription.currentPlan,
-      billingCycle: subscription.billingCycle,
-      licenses: subscription.licenses,
-    });
-    setDialog("subscription");
-  }
-
-  async function submitSubscriptionForm() {
+  const toggleOvertimeRule = async (rule) => {
     try {
-      const updated = await tenantApi.updateSubscription({
-        currentPlan: subscriptionForm.currentPlan,
-        billingCycle: subscriptionForm.billingCycle,
-        licenses: Number(subscriptionForm.licenses),
+      const savedRule = await tenantApi.updateOvertimeRule(rule.id, { active: !rule.active });
+      const nextRule = normalizeOvertimeRule(savedRule);
+      setOvertimeRules((current) => current.map((item) => (item.id === rule.id ? nextRule : item)));
+      showToast(`${rule.name} ${rule.active ? "disabled" : "enabled"}`);
+    } catch (error) {
+      showToast(error.message || "Overtime rule status could not be updated");
+    }
+  };
+
+  const selectSubscriptionPlan = async (plan) => {
+    const monthlyRevenue = plan.custom
+      ? 0
+      : convertSubscriptionAmount(subscriptionBilling === "annual" ? plan.annualMin : plan.monthlyMin, subscriptionRegion);
+    try {
+      const savedSubscription = await tenantApi.updateSubscription({
+        plan_name: plan.name,
+        billing_cycle: subscriptionBilling === "annual" ? "Annual" : "Monthly",
+        monthly_recurring_revenue: monthlyRevenue,
       });
-      setSubscription(updated);
-      notify("Subscription updated");
-      closeDialog();
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not update subscription");
+      const normalizedSubscription = normalizeSubscription(savedSubscription);
+      setSubscriptionPlan(normalizedSubscription.plan);
+      setSubscriptionBilling(normalizedSubscription.billing);
+      setModal(null);
+      showToast(`${plan.name} plan selected`);
+    } catch (error) {
+      showToast(error.message || "Subscription could not be updated");
     }
-  }
+  };
 
-  function openGeneralSettingsDialog() {
-    const organization = tenantSettings?.organization;
-    if (!organization) return;
-    setGeneralSettingsForm({
-      tenantName: organization.tenantName || "",
-      timeZone: organization.timeZone || "",
-      currency: organization.currency || "",
-      weekStart: organization.weekStart || "",
-      payPeriod: organization.payPeriod || "",
-      maxHours: organization.maxHours || "",
-    });
-    setDialog("generalSettings");
-  }
-
-  async function submitGeneralSettingsForm() {
-    try {
-      const updated = await tenantApi.updateSettings({
-        tenantName: generalSettingsForm.tenantName,
-        timeZone: generalSettingsForm.timeZone,
-        currency: generalSettingsForm.currency,
-        weekStart: generalSettingsForm.weekStart,
-        payPeriod: generalSettingsForm.payPeriod,
-        maxHours: generalSettingsForm.maxHours,
-      });
-      setTenantSettings(updated);
-      setAdminProfile(updated.adminProfile || adminProfile);
-      notify("General settings updated");
-      closeDialog();
-      loadDashboard(true);
-    } catch (err) {
-      notify(err.message || "Could not update settings");
-    }
-  }
-
-  function openBrandingDialog() {
-    const organization = tenantSettings?.organization;
-    if (!organization) return;
-    setBrandingForm({
-      logoText: organization.logoText || "",
-      primary: organization.primary || "",
-      secondary: organization.secondary || "",
-      footerNotes: organization.footerNotes || "",
-    });
-    setDialog("branding");
-  }
-
-  async function submitBrandingForm() {
-    try {
-      const updated = await tenantApi.updateSettings(brandingForm);
-      setTenantSettings(updated);
-      notify("Branding updated");
-      closeDialog();
-    } catch (err) {
-      notify(err.message || "Could not update branding");
-    }
-  }
-
-  function downloadInvoice() {
-    if (!subscription) return;
-    const organization = tenantSettings?.organization;
-    const amount = Number(subscription.monthlyRevenue || 0);
-    const invoiceId = `INV-${new Date().getFullYear()}-${String(subscription.id || 1).padStart(3, "0")}`;
-    const currencyCode = organization?.currency === "USD" ? "USD" : "INR";
-    const doc = new jsPDF();
-
-    doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, 210, 34, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(21);
-    doc.text("Tenant Invoice", 14, 18);
-    doc.setFontSize(10);
-    doc.text(`${tenantName} subscription summary`, 14, 26);
-
-    doc.setTextColor(17, 24, 39);
-    doc.setFontSize(11);
-    doc.text(`Invoice: ${invoiceId}`, 14, 48);
-    doc.text(`Plan: ${subscription.currentPlan}`, 14, 56);
-    doc.text(`Billing Cycle: ${subscription.billingCycle}`, 14, 64);
-    doc.text(`Renewal Date: ${subscription.renewalDate}`, 14, 72);
-    doc.text(`Admin Contact: ${adminProfile?.email || "-"}`, 14, 80);
-
-    autoTable(doc, {
-      startY: 90,
-      head: [["Description", "Qty", "Unit Amount", "Total"]],
-      body: [[
-        `${subscription.currentPlan} plan`,
-        String(subscription.licenses),
-        formatCurrency(amount, currencyCode),
-        formatCurrency(amount, currencyCode),
-      ]],
-      theme: "grid",
-      headStyles: { fillColor: [37, 99, 235] },
-    });
-
-    doc.setFontSize(10);
-    doc.text(organization?.footerNotes || "Generated from tenant dashboard.", 14, (doc.lastAutoTable?.finalY || 120) + 20, {
-      maxWidth: 180,
-    });
-    doc.save(`${invoiceId}.pdf`);
-    notify("Invoice downloaded");
-  }
-
-  const notificationItems = allNotifications.filter((item) => item.clientName === tenantName);
-  const organization = tenantSettings?.organization;
+  const handleLogout = () => {
+    clearSession();
+    router.push("/login");
+  };
 
   return (
     <RouteGuard allowedRoles={["admin", "tenant"]}>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-        {toast ? <div className="fixed right-5 top-5 z-50 rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">{toast}</div> : null}
+      <div className="min-h-screen bg-[#f4f7fb] text-[15px] text-slate-950">
+        {toast ? (
+          <div className="fixed right-6 top-5 z-50 rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white shadow-lg">
+            {toast}
+          </div>
+        ) : null}
 
-        <div className="flex min-h-screen">
-          <aside className="w-72 border-r border-slate-200 bg-white/90 px-6 py-8 backdrop-blur">
-            <div className="mb-10">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-lg">
-                <Building2 className="h-7 w-7" />
-              </div>
-              <h1 className="mt-4 text-2xl font-semibold text-slate-900">{tenantName}</h1>
-              <p className="mt-1 text-sm text-slate-500">Tenant workspace backed by PostgreSQL</p>
+        <aside className="fixed inset-y-0 left-0 flex w-[300px] flex-col border-r border-slate-200 bg-white">
+          <div className="flex h-20 items-center gap-4 border-b border-slate-200 px-7">
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-violet-700 text-white shadow-sm">
+              <Clock className="h-6 w-6" />
             </div>
-
-            <nav className="space-y-2">
-              {navItems.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setActive(item)}
-                  className={`flex w-full items-center rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${
-                    active === item
-                      ? "bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow"
-                      : "text-slate-700 hover:bg-slate-100"
-                  }`}
-                >
-                  {item}
-                </button>
-              ))}
-            </nav>
-
-            <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Admin</p>
-              <p className="mt-2 text-base font-semibold text-slate-900">{adminProfile?.name || "Tenant Admin"}</p>
-              <p className="text-sm text-slate-500">{adminProfile?.email || "No email"}</p>
+            <div>
+              <h1 className="text-xl font-bold leading-none tracking-tight">Abhyaka</h1>
             </div>
+          </div>
 
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-300 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </button>
-          </aside>
-
-          <main className="flex-1 px-6 py-8 md:px-10">
-            <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm font-medium uppercase tracking-[0.2em] text-blue-700">Tenant Admin</p>
-                <h2 className="mt-2 text-3xl font-semibold text-slate-900">{active}</h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  Tenant and admin mock data is now loading from PostgreSQL-backed APIs.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={toggleNotifications}
-                  className="relative rounded-2xl border border-slate-300 bg-white px-4 py-3 text-slate-700 hover:bg-slate-50"
-                >
-                  <Bell className="h-5 w-5" />
-                  {unreadNotifications > 0 ? (
-                    <span className="absolute right-2 top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
-                      {unreadNotifications}
-                    </span>
-                  ) : null}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => loadDashboard(true)}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  <RefreshCcw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-                  Refresh
-                </button>
-              </div>
-            </div>
-
-            {showNotifications ? (
-              <section className="mb-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">Tenant Notifications</h3>
-                    <p className="text-sm text-slate-500">Support updates tied to this tenant</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      markClientNotificationsRead(tenantName);
-                      setAllNotifications(getClientNotifications());
-                    }}
-                    className="text-sm font-medium text-blue-700"
-                  >
-                    Mark all read
-                  </button>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {notificationItems.length === 0 ? <p className="text-sm text-slate-500">No notifications yet.</p> : null}
-                  {notificationItems.map((item) => (
-                    <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-                      <p className="mt-1 text-sm text-slate-600">{item.message}</p>
-                      <p className="mt-2 text-xs text-slate-500">{new Date(item.time).toLocaleString("en-IN")}</p>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {error ? <p className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
-            {loading ? <p className="text-sm text-slate-600">Loading tenant data...</p> : null}
-
-            {!loading && active === "Dashboard" ? (
-              <div className="space-y-8">
-                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                  <StatCard icon={Users} label="Total Users" value={overview?.totalUsers || 0} sub={`${overview?.activeUsers || 0} active`} />
-                  <StatCard icon={Shield} label="Departments" value={overview?.activeDepartments || 0} sub={`${overview?.pendingDepartments || 0} pending`} />
-                  <StatCard icon={CreditCard} label="Plan" value={overview?.currentPlan || "-"} sub={`${overview?.licenses || 0} licenses`} />
-                  <StatCard icon={Clock} label="Usage" value={`${overview?.usagePercent || 0}%`} sub={formatCurrency(overview?.monthlyRevenue || 0)} />
-                </div>
-
-                <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-                  <Panel title="Tenant Summary" subtitle="Persisted organization data from PostgreSQL">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <InfoTile label="Organization" value={tenantName} />
-                      <InfoTile label="Admin Email" value={adminProfile?.email || "-"} />
-                      <InfoTile label="Time Zone" value={organization?.timeZone || "-"} />
-                      <InfoTile label="Currency" value={organization?.currency || "-"} />
-                      <InfoTile label="Billing Cycle" value={subscription?.billingCycle || "-"} />
-                      <InfoTile label="Renewal Date" value={subscription?.renewalDate || "-"} />
-                    </div>
-                  </Panel>
-
-                  <Panel title="Recent Audit Activity" subtitle="Latest system actions">
-                    <div className="space-y-3">
-                      {auditLogs.slice(0, 5).map((log) => (
-                        <div key={log.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-sm font-semibold text-slate-900">{log.action}</p>
-                          <p className="mt-1 text-sm text-slate-600">{log.resource}</p>
-                          <p className="mt-1 text-xs text-slate-500">{log.timestamp}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </Panel>
-                </div>
-              </div>
-            ) : null}
-
-            {!loading && active === "Users" ? (
-              <Panel title="Tenant Users" subtitle="Create and manage users stored in PostgreSQL" action={<ActionButton icon={Plus} label="Add User" onClick={() => openUserDialog()} />}>
-                <DataTable
-                  columns={["Name", "Email", "Role", "Department", "Status", "Actions"]}
-                  rows={users.map((user) => [
-                    user.name,
-                    user.email,
-                    user.role,
-                    user.department,
-                    <StatusPill key={`status-${user.id}`} value={user.status} />,
-                    <ActionRow
-                      key={`actions-${user.id}`}
-                      actions={[
-                        { label: "Edit", onClick: () => openUserDialog(user) },
-                        { label: user.status === "Active" ? "Deactivate" : "Activate", onClick: () => handleToggleUser(user) },
-                        { label: "Delete", onClick: () => handleDeleteUser(user), danger: true },
-                      ]}
-                    />,
-                  ])}
-                />
-              </Panel>
-            ) : null}
-
-            {!loading && active === "Departments" ? (
-              <Panel
-                title="Departments"
-                subtitle="Department records are persisted and served by the backend"
-                action={<ActionButton icon={Plus} label="Add Department" onClick={() => openDepartmentDialog()} />}
+          <nav className="flex-1 space-y-2 px-4 py-7">
+            {navItems.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setActive(item)}
+                className={`w-full rounded-lg px-5 py-3.5 text-left text-base font-semibold transition ${
+                  active === item
+                    ? "bg-gradient-to-r from-violet-700 to-fuchsia-600 text-white shadow-md"
+                    : "text-slate-700 hover:bg-slate-50"
+                }`}
               >
-                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  {departments.map((department) => (
-                    <div key={department.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h3 className="text-lg font-semibold text-slate-900">{department.name}</h3>
-                          <p className="mt-1 text-sm text-slate-500">{department.head_name || "No head assigned"}</p>
-                        </div>
-                        <StatusPill value={department.status} />
-                      </div>
-                      <p className="mt-4 text-sm text-slate-600">{department.employees}</p>
-                      <p className="mt-1 text-xs text-slate-500">{department.created}</p>
-                      <div className="mt-5 flex gap-2">
-                        <MiniButton label="Edit" onClick={() => openDepartmentDialog(department)} />
-                        <MiniButton label="Delete" onClick={() => handleDeleteDepartment(department)} danger />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Panel>
-            ) : null}
+                {item}
+              </button>
+            ))}
+          </nav>
 
-            {!loading && active === "Policies" ? (
-              <Panel title="Policies" subtitle="Policy definitions come from tenant policy records" action={<ActionButton icon={Plus} label="Add Policy" onClick={() => openPolicyDialog()} />}>
-                <div className="space-y-4">
-                  {policies.map((policy) => (
-                    <div key={policy.id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <h3 className="text-lg font-semibold text-slate-900">{policy.title}</h3>
-                          <p className="mt-2 text-sm text-slate-600">{policy.desc}</p>
-                          <p className="mt-2 text-xs text-slate-500">
-                            Applies to {policy.applies} • Updated {policy.lastUpdated}
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          <MiniButton label="Edit" onClick={() => openPolicyDialog(policy)} />
-                          <MiniButton label={policy.enabled ? "Disable" : "Enable"} onClick={() => handleTogglePolicy(policy)} />
-                          <MiniButton label="Delete" onClick={() => handleDeletePolicy(policy)} danger />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Panel>
-            ) : null}
-
-            {!loading && active === "Billing & Subscription" ? (
-              <div className="space-y-8">
-                <Panel
-                  title="Subscription"
-                  subtitle="Plan and billing data persisted in PostgreSQL"
-                  action={<ActionButton icon={Save} label="Update Subscription" onClick={openSubscriptionDialog} />}
-                >
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <InfoTile label="Current Plan" value={subscription?.currentPlan || "-"} />
-                    <InfoTile label="Billing Cycle" value={subscription?.billingCycle || "-"} />
-                    <InfoTile label="Licenses" value={subscription?.licenses || 0} />
-                    <InfoTile label="Monthly Revenue" value={formatCurrency(subscription?.monthlyRevenue || 0)} />
-                  </div>
-                  <div className="mt-5 flex flex-wrap gap-3">
-                    <ActionButton icon={Download} label="Download Invoice" onClick={downloadInvoice} />
-                  </div>
-                </Panel>
-
-                <Panel
-                  title="Billing Rates"
-                  subtitle="Rates stored in tenant billing tables"
-                  action={<ActionButton icon={Plus} label="Add Rate" onClick={() => openBillingRateDialog()} />}
-                >
-                  <DataTable
-                    columns={["Role", "Project", "Rate", "Type", "Actions"]}
-                    rows={billingRates.map((rate) => [
-                      rate.role,
-                      rate.project,
-                      rate.rate,
-                      rate.type,
-                      <ActionRow
-                        key={`rate-${rate.id}`}
-                        actions={[
-                          { label: "Edit", onClick: () => openBillingRateDialog(rate) },
-                          { label: "Delete", onClick: () => handleDeleteBillingRate(rate), danger: true },
-                        ]}
-                      />,
-                    ])}
-                  />
-                </Panel>
+          <div className="border-t border-slate-200 p-4">
+            <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-700 text-sm font-bold text-white">
+                {profile.name.charAt(0).toUpperCase()}
               </div>
-            ) : null}
-
-            {!loading && active === "Audit Logs" ? (
-              <Panel title="Audit Logs" subtitle="Recent tenant actions written by backend workflows">
-                <DataTable
-                  columns={["Timestamp", "User", "Action", "Resource", "Details"]}
-                  rows={auditLogs.map((log) => [log.timestamp, log.user, log.action, log.resource, log.details])}
-                />
-              </Panel>
-            ) : null}
-
-            {!loading && active === "Settings" ? (
-              <div className="space-y-6">
-                <div className="flex flex-wrap gap-2">
-                  {settingsTabs.map((tab) => (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => setSettingsTab(tab)}
-                      className={`rounded-2xl px-4 py-2 text-sm font-medium ${
-                        settingsTab === tab ? "bg-blue-600 text-white" : "bg-white text-slate-700"
-                      }`}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-
-                {settingsTab === "General Settings" ? (
-                  <Panel title="General Settings" subtitle="Organization settings stored in PostgreSQL" action={<ActionButton icon={Save} label="Save" onClick={openGeneralSettingsDialog} />}>
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                      <InfoTile label="Tenant Name" value={organization?.tenantName || "-"} />
-                      <InfoTile label="Time Zone" value={organization?.timeZone || "-"} />
-                      <InfoTile label="Currency" value={organization?.currency || "-"} />
-                      <InfoTile label="Week Start" value={organization?.weekStart || "-"} />
-                      <InfoTile label="Pay Period" value={organization?.payPeriod || "-"} />
-                      <InfoTile label="Max Hours" value={organization?.maxHours || "-"} />
-                    </div>
-                  </Panel>
-                ) : null}
-
-                {settingsTab === "Billing Rates" ? (
-                  <Panel title="Billing Rates" subtitle="Quick view of configured tenant rates">
-                    <DataTable
-                      columns={["Role", "Project", "Rate", "Type"]}
-                      rows={billingRates.map((rate) => [rate.role, rate.project, rate.rate, rate.type])}
-                    />
-                  </Panel>
-                ) : null}
-
-                {settingsTab === "Overtime Rules" ? (
-                  <Panel title="Overtime Rules" subtitle="Rules are loaded from the overtime rules table" action={<ActionButton icon={Plus} label="Add Rule" onClick={() => openOvertimeRuleDialog()} />}>
-                    <div className="space-y-4">
-                      {overtimeRules.map((rule) => (
-                        <div key={rule.id} className="rounded-3xl border border-slate-200 bg-white p-5">
-                          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                              <h3 className="text-lg font-semibold text-slate-900">{rule.title}</h3>
-                              <p className="mt-1 text-sm text-slate-600">
-                                {rule.threshold} • {rule.multiplier} • {rule.applies_to}
-                              </p>
-                            </div>
-                            <div className="flex gap-2">
-                              <MiniButton label="Edit" onClick={() => openOvertimeRuleDialog(rule)} />
-                              <MiniButton label={rule.active ? "Disable" : "Enable"} onClick={() => handleToggleOvertimeRule(rule)} />
-                              <MiniButton label="Delete" onClick={() => handleDeleteOvertimeRule(rule)} danger />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Panel>
-                ) : null}
-
-                {settingsTab === "Branding" ? (
-                  <Panel title="Branding" subtitle="Brand colors and footer notes stored on the tenant organization" action={<ActionButton icon={Settings} label="Update Branding" onClick={openBrandingDialog} />}>
-                    <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr]">
-                      <div className="space-y-4">
-                        <InfoTile label="Logo Text" value={organization?.logoText || "-"} />
-                        <InfoTile label="Primary Color" value={organization?.primary || "-"} />
-                        <InfoTile label="Secondary Color" value={organization?.secondary || "-"} />
-                      </div>
-                      <div
-                        className="rounded-3xl p-6 text-white shadow-lg"
-                        style={{ background: `linear-gradient(135deg, ${organization?.primary || "#2563eb"}, ${organization?.secondary || "#4338ca"})` }}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/20 text-2xl font-semibold">
-                            {organization?.logoText || "TN"}
-                          </div>
-                          <div>
-                            <p className="text-sm uppercase tracking-[0.2em] text-white/70">Invoice Footer</p>
-                            <p className="mt-2 text-sm leading-6 text-white/90">{organization?.footerNotes || "No footer notes configured."}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </Panel>
-                ) : null}
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{profile.name}</p>
+                <p className="text-xs text-slate-500">{profile.email}</p>
               </div>
-            ) : null}
-          </main>
-        </div>
+            </div>
+          </div>
+        </aside>
 
-        <FormModal
-          open={dialog === "user"}
-          title={userForm.id ? "Edit User" : "Add User"}
-          description="Create or update a tenant user with proper form fields."
-          onClose={closeDialog}
-          onSubmit={submitUserForm}
-          submitLabel={userForm.id ? "Save User" : "Create User"}
-        >
-          <FormGrid>
-            <TextInput label="Full Name" value={userForm.name} onChange={(value) => setUserForm((prev) => ({ ...prev, name: value }))} />
-            <TextInput label="Email" type="email" value={userForm.email} onChange={(value) => setUserForm((prev) => ({ ...prev, email: value }))} />
-            <SelectInput label="Role" value={userForm.role} onChange={(value) => setUserForm((prev) => ({ ...prev, role: value }))} options={["Employee", "Manager", "Tenant", "Admin", "Finance"]} />
-            <SelectInput label="Status" value={userForm.status} onChange={(value) => setUserForm((prev) => ({ ...prev, status: value }))} options={["Active", "Inactive"]} />
-            <TextInput label="Department" value={userForm.department} onChange={(value) => setUserForm((prev) => ({ ...prev, department: value }))} />
-          </FormGrid>
-        </FormModal>
+        <main className="ml-[300px]">
+          <TenantHeader
+            profile={profile}
+            notifications={notifications}
+            showNotifications={showNotifications}
+            onToggleNotifications={(nextValue) => {
+              if (typeof nextValue === "boolean") {
+                setShowNotifications(nextValue);
+                return;
+              }
+              setShowNotifications((current) => !current);
+            }}
+            onClearNotifications={() => {
+              setNotifications([]);
+              setShowNotifications(false);
+            }}
+            onClearNotification={(id) => setNotifications((current) => current.filter((item) => item.id !== id))}
+            onOpenProfile={() => setModal({ type: "profile" })}
+            onOpenSettings={() => setActive("Settings")}
+            onLogout={handleLogout}
+          />
 
-        <FormModal
-          open={dialog === "department"}
-          title={departmentForm.id ? "Edit Department" : "Add Department"}
-          description="Manage department details for this tenant."
-          onClose={closeDialog}
-          onSubmit={submitDepartmentForm}
-          submitLabel={departmentForm.id ? "Save Department" : "Create Department"}
-        >
-          <FormGrid>
-            <TextInput label="Department Name" value={departmentForm.name} onChange={(value) => setDepartmentForm((prev) => ({ ...prev, name: value }))} />
-            <SelectInput
-              label="Department Head"
-              value={String(departmentForm.head)}
-              onChange={(value) => setDepartmentForm((prev) => ({ ...prev, head: value }))}
-              options={["", ...users.map((user) => String(user.id))]}
-              labels={["No head assigned", ...users.map((user) => `${user.name} (${user.id})`)]}
+          <div className="px-9 py-7">
+          {loading ? (
+            <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-800">
+              Loading tenant data...
+            </div>
+          ) : null}
+          {active === "Dashboard" ? <DashboardHome overview={overview} /> : null}
+          {active === "Users" ? (
+            <UsersPage
+              users={users}
+              onAdd={() => setModal({ type: "user" })}
+              onEdit={(user) => setModal({ type: "user", item: user })}
+              onToggleStatus={toggleUserStatus}
             />
-            <SelectInput label="Status" value={departmentForm.status} onChange={(value) => setDepartmentForm((prev) => ({ ...prev, status: value }))} options={["Active", "Pending", "Inactive"]} />
-          </FormGrid>
-        </FormModal>
+          ) : null}
+          {active === "Departments" ? (
+            <DepartmentsPage
+              departments={departments}
+              onAdd={() => setModal({ type: "department" })}
+              onEdit={(department) => setModal({ type: "department", item: department })}
+              onDelete={deleteDepartment}
+            />
+          ) : null}
+          {active === "Policies" ? (
+            <PoliciesPage policies={policies} onAdd={() => setModal({ type: "policy" })} onToggle={togglePolicy} />
+          ) : null}
+          {active === "Billing & Subscription" ? (
+            <BillingPage
+              currentPlan={subscriptionPlan}
+              region={subscriptionRegion}
+              billing={subscriptionBilling}
+              onManage={() => setModal({ type: "plans" })}
+              onAction={showToast}
+            />
+          ) : null}
+          {active === "Audit Logs" ? <AuditLogsPage logs={auditLogs} /> : null}
+          {active === "Settings" ? (
+            <SettingsPage
+              activeTab={settingsTab}
+              onTabChange={setSettingsTab}
+              settings={settings}
+              onSave={saveSettings}
+              onAction={showToast}
+              billingRates={billingRates}
+              onAddBillingRate={() => setModal({ type: "billingRate" })}
+              onEditBillingRate={(rate) => setModal({ type: "billingRate", item: rate })}
+              onDeleteBillingRate={deleteBillingRate}
+              overtimeRules={overtimeRules}
+              onAddOvertimeRule={() => setModal({ type: "overtimeRule" })}
+              onEditOvertimeRule={(rule) => setModal({ type: "overtimeRule", item: rule })}
+              onDeleteOvertimeRule={deleteOvertimeRule}
+              onToggleOvertimeRule={toggleOvertimeRule}
+            />
+          ) : null}
+          </div>
+        </main>
 
-        <FormModal
-          open={dialog === "policy"}
-          title={policyForm.id ? "Edit Policy" : "Add Policy"}
-          description="Update tenant rules with a structured policy form."
-          onClose={closeDialog}
-          onSubmit={submitPolicyForm}
-          submitLabel={policyForm.id ? "Save Policy" : "Create Policy"}
-        >
-          <FormGrid>
-            <TextInput label="Policy Title" value={policyForm.title} onChange={(value) => setPolicyForm((prev) => ({ ...prev, title: value }))} />
-            <SelectInput label="Applies To" value={policyForm.appliesTo} onChange={(value) => setPolicyForm((prev) => ({ ...prev, appliesTo: value }))} options={["All users", "All Employees", "Managers & above", "Finance", "Tenant Admins"]} />
-          </FormGrid>
-          <TextAreaInput label="Description" value={policyForm.description} onChange={(value) => setPolicyForm((prev) => ({ ...prev, description: value }))} />
-        </FormModal>
-
-        <FormModal
-          open={dialog === "billingRate"}
-          title={billingRateForm.id ? "Edit Billing Rate" : "Add Billing Rate"}
-          description="Configure project billing with a dedicated form."
-          onClose={closeDialog}
-          onSubmit={submitBillingRateForm}
-          submitLabel={billingRateForm.id ? "Save Rate" : "Create Rate"}
-        >
-          <FormGrid>
-            <TextInput label="Role" value={billingRateForm.role} onChange={(value) => setBillingRateForm((prev) => ({ ...prev, role: value }))} />
-            <TextInput label="Project" value={billingRateForm.project} onChange={(value) => setBillingRateForm((prev) => ({ ...prev, project: value }))} />
-            <TextInput label="Hourly Rate" type="number" value={billingRateForm.rate} onChange={(value) => setBillingRateForm((prev) => ({ ...prev, rate: value }))} />
-            <SelectInput label="Rate Type" value={billingRateForm.type} onChange={(value) => setBillingRateForm((prev) => ({ ...prev, type: value }))} options={["Hourly", "Daily", "Monthly"]} />
-          </FormGrid>
-        </FormModal>
-
-        <FormModal
-          open={dialog === "overtimeRule"}
-          title={overtimeRuleForm.id ? "Edit Overtime Rule" : "Add Overtime Rule"}
-          description="Set overtime thresholds and compensation rules."
-          onClose={closeDialog}
-          onSubmit={submitOvertimeRuleForm}
-          submitLabel={overtimeRuleForm.id ? "Save Rule" : "Create Rule"}
-        >
-          <FormGrid>
-            <TextInput label="Rule Title" value={overtimeRuleForm.title} onChange={(value) => setOvertimeRuleForm((prev) => ({ ...prev, title: value }))} />
-            <TextInput label="Threshold" value={overtimeRuleForm.threshold} onChange={(value) => setOvertimeRuleForm((prev) => ({ ...prev, threshold: value }))} />
-            <TextInput label="Multiplier" value={overtimeRuleForm.multiplier} onChange={(value) => setOvertimeRuleForm((prev) => ({ ...prev, multiplier: value }))} />
-            <TextInput label="Applies To" value={overtimeRuleForm.appliesTo} onChange={(value) => setOvertimeRuleForm((prev) => ({ ...prev, appliesTo: value }))} />
-          </FormGrid>
-        </FormModal>
-
-        <FormModal
-          open={dialog === "subscription"}
-          title="Update Subscription"
-          description="Edit the current subscription details for this tenant."
-          onClose={closeDialog}
-          onSubmit={submitSubscriptionForm}
-          submitLabel="Save Subscription"
-        >
-          <FormGrid>
-            <SelectInput label="Plan" value={subscriptionForm.currentPlan} onChange={(value) => setSubscriptionForm((prev) => ({ ...prev, currentPlan: value }))} options={["Starter", "Professional", "Enterprise"]} />
-            <SelectInput label="Billing Cycle" value={subscriptionForm.billingCycle} onChange={(value) => setSubscriptionForm((prev) => ({ ...prev, billingCycle: value }))} options={["Monthly", "Annual"]} />
-            <TextInput label="Licenses" type="number" value={String(subscriptionForm.licenses)} onChange={(value) => setSubscriptionForm((prev) => ({ ...prev, licenses: value }))} />
-          </FormGrid>
-        </FormModal>
-
-        <FormModal
-          open={dialog === "generalSettings"}
-          title="General Settings"
-          description="Edit the main tenant configuration in one place."
-          onClose={closeDialog}
-          onSubmit={submitGeneralSettingsForm}
-          submitLabel="Save Settings"
-        >
-          <FormGrid>
-            <TextInput label="Tenant Name" value={generalSettingsForm.tenantName} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, tenantName: value }))} />
-            <TextInput label="Time Zone" value={generalSettingsForm.timeZone} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, timeZone: value }))} />
-            <TextInput label="Currency" value={generalSettingsForm.currency} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, currency: value }))} />
-            <TextInput label="Week Start" value={generalSettingsForm.weekStart} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, weekStart: value }))} />
-            <TextInput label="Pay Period" value={generalSettingsForm.payPeriod} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, payPeriod: value }))} />
-            <TextInput label="Max Hours" value={generalSettingsForm.maxHours} onChange={(value) => setGeneralSettingsForm((prev) => ({ ...prev, maxHours: value }))} />
-          </FormGrid>
-        </FormModal>
-
-        <FormModal
-          open={dialog === "branding"}
-          title="Branding"
-          description="Update tenant colors, logo text, and invoice footer notes."
-          onClose={closeDialog}
-          onSubmit={submitBrandingForm}
-          submitLabel="Save Branding"
-        >
-          <FormGrid>
-            <TextInput label="Logo Text" value={brandingForm.logoText} onChange={(value) => setBrandingForm((prev) => ({ ...prev, logoText: value }))} />
-            <TextInput label="Primary Color" value={brandingForm.primary} onChange={(value) => setBrandingForm((prev) => ({ ...prev, primary: value }))} />
-            <TextInput label="Secondary Color" value={brandingForm.secondary} onChange={(value) => setBrandingForm((prev) => ({ ...prev, secondary: value }))} />
-          </FormGrid>
-          <TextAreaInput label="Footer Notes" value={brandingForm.footerNotes} onChange={(value) => setBrandingForm((prev) => ({ ...prev, footerNotes: value }))} />
-        </FormModal>
-
-        <HelpButton dashboardName="Tenant" clientName={tenantName} requesterName={adminProfile?.name || "Tenant Admin"} />
+        {modal?.type === "user" ? <UserModal item={modal.item} onClose={() => setModal(null)} onSubmit={saveUser} /> : null}
+        {modal?.type === "department" ? <DepartmentModal item={modal.item} onClose={() => setModal(null)} onSubmit={saveDepartment} /> : null}
+        {modal?.type === "billingRate" ? <BillingRateModal item={modal.item} onClose={() => setModal(null)} onSubmit={saveBillingRate} /> : null}
+        {modal?.type === "overtimeRule" ? <OvertimeRuleModal item={modal.item} onClose={() => setModal(null)} onSubmit={saveOvertimeRule} /> : null}
+        {modal?.type === "policy" ? <PolicyModal onClose={() => setModal(null)} onSubmit={savePolicy} /> : null}
+        {modal?.type === "profile" ? <ProfileModal profile={profile} onClose={() => setModal(null)} onSubmit={saveProfile} /> : null}
+        {modal?.type === "plans" ? (
+          <PlansModal
+            currentPlan={subscriptionPlan}
+            plans={subscriptionPlans}
+            region={subscriptionRegion}
+            billing={subscriptionBilling}
+            onRegionChange={setSubscriptionRegion}
+            onBillingChange={setSubscriptionBilling}
+            onClose={() => setModal(null)}
+            onSelect={selectSubscriptionPlan}
+          />
+        ) : null}
       </div>
     </RouteGuard>
   );
 }
 
-function Panel({ title, subtitle, action, children }) {
+function TenantHeader({
+  profile,
+  notifications,
+  showNotifications,
+  onToggleNotifications,
+  onClearNotifications,
+  onClearNotification,
+  onOpenProfile,
+  onOpenSettings,
+  onLogout,
+}) {
+  const headerActionsRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!headerActionsRef.current?.contains(event.target)) {
+        onToggleNotifications(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [onToggleNotifications]);
+
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
-          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+    <header className="border-b border-gray-200 bg-white px-5 py-4 md:px-8">
+      <div className="mx-auto flex w-full max-w-[1320px] items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-base font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            aria-label="Open tenant profile"
+            title="Tenant Profile"
+          >
+            {profile.name.charAt(0).toUpperCase()}
+          </button>
+          <button type="button" onClick={onOpenProfile} className="text-left text-sm font-medium text-gray-600 hover:text-gray-900">
+            Tenant Profile
+          </button>
         </div>
-        {action}
+
+        <div ref={headerActionsRef} className="relative">
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={onToggleNotifications}
+              className="relative flex h-11 w-11 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-700 shadow-sm transition hover:bg-gray-50"
+              aria-label="Notifications"
+            >
+              <Bell className="h-5 w-5" />
+              {notifications.length > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
+                  {notifications.length}
+                </span>
+              ) : null}
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              aria-label="Settings"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-700 transition hover:bg-gray-50"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onLogout}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl border border-indigo-600 bg-indigo-50 px-4 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+          </div>
+
+          {showNotifications ? (
+            <section className="absolute right-0 z-30 mt-2 w-80 rounded-xl border border-gray-200 bg-white shadow-lg">
+              <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                <h2 className="font-semibold text-gray-900">Notifications</h2>
+                <button
+                  type="button"
+                  onClick={onClearNotifications}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <ul className="max-h-80 overflow-auto py-1">
+                {notifications.length === 0 ? (
+                  <li className="px-4 py-5 text-sm text-gray-500">No notifications yet.</li>
+                ) : null}
+                {notifications.map((item) => (
+                  <li key={item.id} className="border-b border-gray-100 px-4 py-3 last:border-b-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-950">{item.title}</p>
+                        <p className="mt-1 text-sm text-gray-600">{item.message}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onClearNotification(item.id)}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-xs font-semibold leading-none text-gray-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                        aria-label="Clear notification"
+                      >
+                        x
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
       </div>
+    </header>
+  );
+}
+
+function PageHeader({ title, subtitle, action }) {
+  return (
+    <div className="mb-8 flex items-start justify-between">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight text-slate-950">{title}</h2>
+        <p className="mt-3 text-base text-slate-600">{subtitle}</p>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function PurpleButton({ children, onClick, type = "button" }) {
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      className="rounded-lg bg-gradient-to-r from-violet-700 to-fuchsia-600 px-6 py-3 text-base font-bold text-white shadow-md"
+    >
       {children}
-    </section>
+    </button>
   );
 }
 
-function StatCard({ icon: Icon, label, value, sub }) {
+function DashboardHome({ overview }) {
+  const metrics = [
+    { label: "Total Users", value: overview?.totalUsers ?? "500" },
+    { label: "Departments", value: overview?.activeDepartments ?? "8" },
+    { label: "Active Policies", value: overview?.activePolicies ?? "12" },
+    { label: "License Usage", value: overview?.usagePercent ? `${overview.usagePercent}%` : "31%" },
+  ];
+
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-slate-500">{label}</p>
-        <Icon className="h-5 w-5 text-blue-700" />
+    <>
+      <PageHeader title="Dashboard" subtitle="Monitor organization activity and account health" />
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+        {metrics.map((metric) => (
+          <MetricCard key={metric.label} label={metric.label} value={metric.value} />
+        ))}
       </div>
-      <p className="mt-4 text-3xl font-semibold text-slate-900">{value}</p>
-      <p className="mt-2 text-sm text-slate-500">{sub}</p>
+    </>
+  );
+}
+
+function MetricCard({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-300 bg-white p-6">
+      <p className="text-sm font-semibold text-slate-500">{label}</p>
+      <p className="mt-3 text-3xl font-bold text-slate-950">{value}</p>
     </div>
   );
 }
 
-function InfoTile({ label, value }) {
+function UsersPage({ users, onAdd, onEdit, onToggleStatus }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 text-base font-medium text-slate-900">{value}</p>
-    </div>
-  );
-}
+    <>
+      <PageHeader
+        title="Users"
+        subtitle="Manage user accounts, roles, and permissions"
+        action={<PurpleButton onClick={onAdd}>+ Add User</PurpleButton>}
+      />
 
-function DataTable({ columns, rows }) {
-  return (
-    <div className="overflow-x-auto rounded-3xl border border-slate-200">
-      <table className="w-full min-w-[720px] text-left">
-        <thead className="bg-slate-50">
-          <tr>
-            {columns.map((column) => (
-              <th key={column} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200 bg-white">
-          {rows.length === 0 ? (
+      <div className="overflow-hidden rounded-xl border border-slate-300 bg-white">
+        <table className="w-full text-left">
+          <thead className="border-b border-slate-300 bg-white">
             <tr>
-              <td colSpan={columns.length} className="px-4 py-8 text-center text-sm text-slate-500">
-                No records available.
-              </td>
+              {["Name", "Email", "Role", "Status", "Department", "Actions"].map((heading) => (
+                <th key={heading} className="px-6 py-4 text-sm font-bold text-slate-700">
+                  {heading}
+                </th>
+              ))}
             </tr>
-          ) : (
-            rows.map((row, index) => (
-              <tr key={index}>
-                {row.map((cell, cellIndex) => (
-                  <td key={cellIndex} className="px-4 py-4 text-sm text-slate-700">
-                    {cell}
-                  </td>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {users.map((user) => (
+              <tr key={user.id}>
+                <td className="px-6 py-5 text-base text-slate-800">{user.name}</td>
+                <td className="px-6 py-5 text-base text-slate-500">{user.email}</td>
+                <td className="px-6 py-5 text-base text-slate-500">{user.role}</td>
+                <td className="px-6 py-5"><StatusBadge value={user.status} /></td>
+                <td className="px-6 py-5 text-base text-slate-500">{user.department}</td>
+                <td className="px-6 py-5">
+                  <div className="flex gap-2">
+                    <OutlineButton onClick={() => onEdit(user)}>Edit</OutlineButton>
+                    <OutlineButton onClick={() => onToggleStatus(user)}>
+                      {user.status === "Active" ? "Deactivate" : "Activate"}
+                    </OutlineButton>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function DepartmentsPage({ departments, onAdd, onEdit, onDelete }) {
+  return (
+    <>
+      <PageHeader
+        title="Departments"
+        subtitle="Organize teams and manage department structures"
+        action={<PurpleButton onClick={onAdd}>+ Create Department</PurpleButton>}
+      />
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        {departments.map((department) => (
+          <section key={department.id} className="rounded-xl border border-slate-300 bg-white p-7">
+            <div className="flex items-start justify-between">
+              <h3 className="text-xl font-bold">{department.name}</h3>
+              <div className="flex gap-2">
+                <SmallIconButton onClick={() => onEdit(department)}><Pencil className="h-3 w-3" /></SmallIconButton>
+                <SmallIconButton onClick={() => onDelete(department)}>x</SmallIconButton>
+              </div>
+            </div>
+            <div className="mt-6 space-y-4">
+              <InfoBlock label="Department Head" value={department.head} />
+              <InfoBlock label="Total Employees" value={department.employees} />
+              <div>
+                <p className="text-sm text-slate-500">Status</p>
+                <div className="mt-2"><StatusBadge value={department.status} /></div>
+              </div>
+            </div>
+            <p className="mt-6 border-t border-slate-200 pt-5 text-sm text-slate-500">{department.created}</p>
+          </section>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function PoliciesPage({ policies, onAdd, onToggle }) {
+  const [viewPolicy, setViewPolicy] = useState(null);
+
+  return (
+    <>
+      <PageHeader
+        title="Policies"
+        subtitle="Configure organizational policies and compliance rules"
+        action={<PurpleButton onClick={onAdd}>+ Add Policy</PurpleButton>}
+      />
+
+      <div className="max-w-5xl space-y-5">
+        {policies.map((policy) => (
+          <section key={policy.id} className="rounded-xl border border-slate-300 bg-white px-6 py-6">
+            <div className="flex items-center justify-between gap-6">
+            <div>
+              <h3 className="text-xl font-bold">{policy.title}</h3>
+              <p className="mt-3 text-base text-slate-600">{policy.description}</p>
+              <div className="mt-5 flex gap-8 text-sm text-slate-500">
+                <span>Applies to: {policy.appliesTo}</span>
+                <span>Last updated: {policy.updated}</span>
+              </div>
+            </div>
+              <div className="flex shrink-0 items-center gap-4">
+                <OutlineButton onClick={() => setViewPolicy(viewPolicy?.id === policy.id ? null : policy)}>
+                  {viewPolicy?.id === policy.id ? "Hide Policy" : "View Policy"}
+                </OutlineButton>
+                <span className="text-sm uppercase tracking-wide text-slate-500">{policy.enabled ? "On" : "Off"}</span>
+                <ToggleSwitch enabled={policy.enabled} onClick={() => onToggle(policy)} />
+              </div>
+            </div>
+
+            {viewPolicy?.id === policy.id ? (
+              <div className="mt-5 rounded-lg border border-violet-100 bg-violet-50 px-5 py-4">
+                <p className="text-sm font-semibold text-violet-900">Policy Details</p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">{policy.details}</p>
+                <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-3">
+                  <span>Scope: {policy.appliesTo}</span>
+                  <span>Status: {policy.enabled ? "Enabled" : "Disabled"}</span>
+                  <span>Reviewed: {policy.updated}</span>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function convertSubscriptionAmount(value, region) {
+  return Math.round(value * subscriptionRegionMeta[region].multiplier);
+}
+
+function formatSubscriptionAmount(value, region) {
+  const meta = subscriptionRegionMeta[region];
+  return `${meta.symbol}${value.toLocaleString(meta.locale)}`;
+}
+
+function formatSubscriptionRange(plan, region, billing) {
+  if (plan.custom) {
+    return billing === "annual" ? "Custom per year" : "Custom per month";
+  }
+
+  const min = billing === "annual" ? plan.annualMin : plan.monthlyMin;
+  const max = billing === "annual" ? plan.annualMax : plan.monthlyMax;
+  return `${formatSubscriptionAmount(convertSubscriptionAmount(min, region), region)}-${formatSubscriptionAmount(convertSubscriptionAmount(max, region), region)}`;
+}
+
+function BillingPage({ currentPlan, region, billing, onManage, onAction }) {
+  const usagePercent = currentPlan.name === "Starter" ? "42%" : currentPlan.name === "Professional" ? "38%" : "31%";
+  const suffix = currentPlan.custom ? "" : billing === "annual" ? "/user/yr" : "/user/mo";
+  const displayPrice = formatSubscriptionRange(currentPlan, region, billing);
+
+  const downloadInvoicePdf = (invoice) => {
+    const doc = new jsPDF();
+    const regionLabel = `${subscriptionRegionMeta[region].label} (${subscriptionRegionMeta[region].code})`;
+
+    doc.setFillColor(91, 33, 182);
+    doc.rect(0, 0, 210, 34, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.text("Abhyaka Invoice", 14, 20);
+    doc.setFontSize(10);
+    doc.text("Tenant subscription billing summary", 14, 28);
+
+    doc.setTextColor(15, 23, 42);
+    doc.setFontSize(12);
+    doc.text(`Invoice Number: ${invoice.number}`, 14, 50);
+    doc.text(`Invoice Date: ${invoice.date}`, 14, 60);
+    doc.text(`Plan: ${currentPlan.name}`, 14, 70);
+    doc.text(`Region: ${regionLabel}`, 14, 80);
+    doc.text(`Billing Cycle: ${billing === "annual" ? "Annual" : "Monthly"}`, 14, 90);
+    doc.text(`Price: ${displayPrice}${suffix}`, 14, 100);
+    doc.text(`License: ${currentPlan.seats}`, 14, 110);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(14, 122, 196, 122);
+
+    doc.setFontSize(14);
+    doc.text("Subscription Details", 14, 136);
+    doc.setFontSize(11);
+    doc.text(`Usage: ${currentPlan.usage}`, 14, 148);
+    doc.text(`Available: ${currentPlan.available}`, 14, 158);
+    doc.text(`Support: ${currentPlan.support}`, 14, 168);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(14, 180, 196, 180);
+    doc.setFontSize(12);
+    doc.text(`Amount: ${invoice.amount}`, 14, 194);
+    doc.text("Status: Paid", 14, 204);
+
+    doc.save(`${invoice.number}.pdf`);
+    onAction(`${invoice.number} PDF downloaded`);
+  };
+
+  return (
+    <>
+      <PageHeader title="Billing & Subscription" subtitle="Manage your subscription plan, usage, and payment history" />
+
+      <section className="rounded-xl border border-slate-300 bg-white p-7">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-2xl font-bold">{currentPlan.name} Plan</h3>
+            <p className="mt-3 text-base text-slate-600">{currentPlan.description}</p>
+            <p className="mt-2 text-sm text-slate-500">
+              Region: {subscriptionRegionMeta[region].label} ({subscriptionRegionMeta[region].code}) · {billing === "annual" ? "Annual" : "Monthly"} billing
+            </p>
+          </div>
+          <p className={`${currentPlan.custom ? "text-2xl" : "text-3xl"} font-bold`}>
+            {formatSubscriptionRange(currentPlan, region, billing)}
+            {suffix ? <span className="text-base">{suffix}</span> : null}
+          </p>
+        </div>
+
+        <div className="mt-7 grid gap-8 md:grid-cols-3">
+          <InfoBlock label="Plan Type" value="Annual" large />
+          <InfoBlock label="User License" value={currentPlan.seats} large />
+          <InfoBlock label="Next Billing Date" value="Mar 1, 2026" large />
+        </div>
+
+        <div className="mt-8">
+          <p className="mb-3 text-sm text-slate-500">License Usage</p>
+          <div className="h-7 overflow-hidden rounded border border-slate-300 bg-white">
+            <div
+              className="h-full bg-gradient-to-r from-violet-700 to-fuchsia-600 text-center text-sm leading-7 text-slate-950"
+              style={{ width: usagePercent }}
+            >
+              {currentPlan.usage}
+            </div>
+          </div>
+          <p className="mt-3 text-sm text-slate-500">{currentPlan.available}</p>
+        </div>
+
+        <div className="mt-8 flex gap-5">
+          <PurpleButton onClick={onManage}>Upgrade Plan</PurpleButton>
+          <OutlineButton onClick={onManage}>Manage Plan</OutlineButton>
+        </div>
+      </section>
+
+      <section className="mt-8 rounded-xl border border-slate-300 bg-white p-7">
+        <h3 className="text-xl font-bold">Invoice History</h3>
+        <div className="mt-8 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-slate-100">
+              <tr>
+                {["Invoice Number", "Date", "Plan", "Amount", "Actions"].map((heading) => (
+                  <th key={heading} className="px-5 py-4 text-sm font-bold text-slate-700">{heading}</th>
                 ))}
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {invoices.map((invoice) => (
+                <tr key={invoice.number}>
+                  <td className="px-5 py-5 text-base font-medium">{invoice.number}</td>
+                  <td className="px-5 py-5 text-base text-slate-500">{invoice.date}</td>
+                  <td className="px-5 py-5 text-base text-slate-500">{invoice.plan}</td>
+                  <td className="px-5 py-5 text-base font-semibold">{invoice.amount}</td>
+                  <td className="px-5 py-5">
+                    <OutlineButton onClick={() => downloadInvoicePdf(invoice)}>
+                      <Download className="h-4 w-4" /> Download PDF
+                    </OutlineButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function AuditLogsPage({ logs }) {
+  const [selectedLogId, setSelectedLogId] = useState(null);
+  const availableLogs = logs?.length ? logs : [fallbackAuditLog];
+  const selectedLog = availableLogs.find((log) => log.id === selectedLogId) || availableLogs[0];
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-950">Audit Logs</h2>
+        <div className="mt-4 space-y-3">
+          {availableLogs.map((log) => (
+            <button
+              key={log.id || `${log.timestamp}-${log.resource}`}
+              type="button"
+              onClick={() => setSelectedLogId(log.id || `${log.timestamp}-${log.resource}`)}
+              className={`w-full rounded-lg border px-4 py-3 text-left text-sm transition ${
+                selectedLog === log ? "border-violet-500 bg-violet-50" : "border-slate-200 bg-white hover:bg-slate-50"
+              }`}
+            >
+              <span className="block font-semibold text-slate-950">{log.action}</span>
+              <span className="mt-1 block text-xs text-slate-500">{log.timestamp}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="max-w-[680px] rounded-xl border border-slate-200 bg-white px-7 py-6 shadow-sm">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-xl font-bold tracking-tight text-slate-950">Audit Log Details</h2>
+          <button type="button" className="text-2xl leading-none text-slate-500 hover:text-slate-800" aria-label="Close audit log details">
+            x
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <AuditDetailBlock label="Timestamp">
+            <p className="font-mono text-sm font-semibold text-slate-950">{selectedLog.timestamp}</p>
+          </AuditDetailBlock>
+
+          <AuditDetailBlock label="User">
+            <p className="text-sm font-semibold text-slate-950">{selectedLog.user || "System"}</p>
+            <p className="mt-1 text-sm text-slate-600">{selectedLog.email || "No email recorded"}</p>
+          </AuditDetailBlock>
+
+          <AuditDetailBlock label="Action">
+            <p className="text-sm font-semibold text-slate-950">{selectedLog.action}</p>
+          </AuditDetailBlock>
+
+          <AuditDetailBlock label="Resource">
+            <p className="font-mono text-sm font-semibold text-slate-950">{selectedLog.resource}</p>
+          </AuditDetailBlock>
+
+          <AuditDetailBlock label="Details">
+            <p className="text-sm leading-6 text-slate-700">{selectedLog.details}</p>
+          </AuditDetailBlock>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setSelectedLogId(null)}
+          className="mt-6 w-full rounded-lg bg-gradient-to-r from-violet-700 to-fuchsia-600 px-6 py-3 text-sm font-bold text-white shadow-md"
+        >
+          Close
+        </button>
+      </section>
     </div>
   );
 }
 
-function StatusPill({ value }) {
-  const styles =
-    value === "Active"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : value === "Pending"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-slate-200 bg-slate-100 text-slate-600";
-
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${styles}`}>{value}</span>;
-}
-
-function ActionButton({ icon: Icon, label, onClick }) {
+function AuditDetailBlock({ label, children }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-700 px-4 py-3 text-sm font-semibold text-white shadow-sm"
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </button>
-  );
-}
-
-function MiniButton({ label, onClick, danger = false }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-xl border px-3 py-2 text-sm font-medium ${
-        danger ? "border-rose-200 text-rose-700 hover:bg-rose-50" : "border-slate-300 text-slate-700 hover:bg-slate-50"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ActionRow({ actions }) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {actions.map((action) => (
-        <MiniButton key={action.label} label={action.label} onClick={action.onClick} danger={action.danger} />
-      ))}
+    <div className="rounded-xl bg-slate-50 px-4 py-4">
+      <p className="mb-2 text-sm text-slate-500">{label}</p>
+      {children}
     </div>
   );
 }
 
-function FormModal({ open, title, description, onClose, onSubmit, submitLabel, children }) {
-  if (!open) return null;
-
+function SettingsPage({
+  activeTab,
+  onTabChange,
+  settings,
+  onSave,
+  onAction,
+  billingRates,
+  onAddBillingRate,
+  onEditBillingRate,
+  onDeleteBillingRate,
+  overtimeRules,
+  onAddOvertimeRule,
+  onEditOvertimeRule,
+  onDeleteOvertimeRule,
+  onToggleOvertimeRule,
+}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-3xl rounded-[28px] border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-slate-200 px-6 py-5">
-          <div>
-            <h3 className="text-2xl font-semibold text-slate-900">{title}</h3>
-            <p className="mt-1 text-sm text-slate-500">{description}</p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
-            <X className="h-4 w-4" />
-          </button>
+    <>
+      <PageHeader title="Tenant Settings" subtitle="Configure organization-wide settings and preferences" />
+
+      <div className="overflow-hidden rounded-xl border border-slate-300 bg-white">
+        <div className="flex">
+          {settingTabs.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => onTabChange(tab)}
+              className={`px-7 py-4 text-base font-semibold ${
+                activeTab === tab ? "border-b-4 border-violet-700 text-violet-700" : "text-slate-700"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
-        <div className="px-6 py-6">{children}</div>
-        <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-5">
-          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
-            Cancel
-          </button>
-          <button type="button" onClick={onSubmit} className="rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm">
-            {submitLabel}
-          </button>
+      </div>
+
+      <section className="mt-7 rounded-xl border border-slate-300 bg-white p-8">
+        {activeTab === "General Settings" ? <GeneralSettings settings={settings} onSave={onSave} /> : null}
+        {activeTab === "Billing Rates" ? (
+          <BillingRatesSettings
+            rates={billingRates}
+            onAdd={onAddBillingRate}
+            onEdit={onEditBillingRate}
+            onDelete={onDeleteBillingRate}
+          />
+        ) : null}
+        {activeTab === "Overtime Rules" ? (
+          <OvertimeRulesSettings
+            rules={overtimeRules}
+            onAdd={onAddOvertimeRule}
+            onEdit={onEditOvertimeRule}
+            onDelete={onDeleteOvertimeRule}
+            onToggle={onToggleOvertimeRule}
+          />
+        ) : null}
+        {activeTab === "Branding" ? <SimpleSettings title="Branding" onAction={onAction} /> : null}
+      </section>
+    </>
+  );
+}
+
+function BillingRatesSettings({ rates, onAdd, onEdit, onDelete }) {
+  return (
+    <div>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-2xl font-bold">Billing Rates Configuration</h3>
+          <p className="mt-3 text-base text-slate-600">Define billing rates per role and project for invoicing</p>
         </div>
+        <PurpleButton onClick={onAdd}>+ Add Billing Rate</PurpleButton>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-slate-300">
+        <table className="w-full text-left">
+          <thead className="bg-slate-50">
+            <tr>
+              {["Role", "Project", "Rate (INR)", "Type", "Actions"].map((heading) => (
+                <th key={heading} className="px-5 py-4 text-sm font-bold text-slate-700">{heading}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {rates.map((rate) => (
+              <tr key={rate.id}>
+                <td className="px-5 py-5 text-base font-semibold">{rate.role}</td>
+                <td className="px-5 py-5 text-base text-slate-500">{rate.project}</td>
+                <td className="px-5 py-5 text-base">{rate.rate}</td>
+                <td className="px-5 py-5 text-base text-slate-500">{rate.type}</td>
+                <td className="px-5 py-5">
+                  <div className="flex gap-2">
+                    <OutlineButton onClick={() => onEdit(rate)}><Pencil className="h-4 w-4" /> Edit</OutlineButton>
+                    <DangerButton onClick={() => onDelete(rate)}><Trash2 className="h-4 w-4" /> Delete</DangerButton>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-7 rounded-xl border border-blue-200 bg-blue-50 px-5 py-4">
+        <p className="font-semibold text-blue-900">Billing Rates Information</p>
+        <p className="mt-2 text-sm text-blue-800">Billing rates are used to calculate project costs and generate client invoices.</p>
+        <p className="mt-1 text-sm text-blue-800">You can define different rates for the same role across different projects.</p>
       </div>
     </div>
   );
 }
 
-function FormGrid({ children }) {
-  return <div className="grid gap-4 md:grid-cols-2">{children}</div>;
-}
-
-function TextInput({ label, value, onChange, type = "text" }) {
+function OvertimeRulesSettings({ rules, onAdd, onEdit, onDelete, onToggle }) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-medium text-slate-700">{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-      />
-    </label>
-  );
-}
+    <div>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-2xl font-bold">Overtime Rules Configuration</h3>
+          <p className="mt-3 text-base text-slate-600">Define overtime eligibility, thresholds, and compensation multipliers</p>
+        </div>
+        <PurpleButton onClick={onAdd}>+ Add Overtime Rule</PurpleButton>
+      </div>
 
-function TextAreaInput({ label, value, onChange }) {
-  return (
-    <label className="mt-4 block">
-      <span className="mb-2 block text-sm font-medium text-slate-700">{label}</span>
-      <textarea
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        rows={5}
-        className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-      />
-    </label>
-  );
-}
-
-function SelectInput({ label, value, onChange, options, labels }) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-medium text-slate-700">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-      >
-        {options.map((option, index) => (
-          <option key={`${label}-${option || "empty"}-${index}`} value={option}>
-            {labels?.[index] || option}
-          </option>
+      <div className="space-y-5">
+        {rules.map((rule) => (
+          <section key={rule.id} className="rounded-xl border border-slate-300 bg-white px-7 py-7">
+            <div className="flex items-start justify-between gap-6">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-4">
+                  <h4 className="text-2xl font-bold">{rule.name}</h4>
+                  <StatusBadge value={rule.active ? "Active" : "Inactive"} />
+                </div>
+                <div className="mt-6 grid gap-8 md:grid-cols-3">
+                  <InfoBlock label="Threshold (hours/week)" value={rule.threshold} large />
+                  <InfoBlock label="Pay Multiplier" value={rule.multiplier} large />
+                  <InfoBlock label="Applies To" value={rule.appliesTo} large />
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <OutlineButton onClick={() => onToggle(rule)}>{rule.active ? "Disable" : "Enable"}</OutlineButton>
+                <OutlineButton onClick={() => onEdit(rule)}><Pencil className="h-4 w-4" /> Edit</OutlineButton>
+                <DangerButton onClick={() => onDelete(rule)}><Trash2 className="h-4 w-4" /> Delete</DangerButton>
+              </div>
+            </div>
+          </section>
         ))}
+      </div>
+
+      <div className="mt-7 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+        <p className="font-semibold text-amber-900">Overtime Rules Information</p>
+        <p className="mt-2 text-sm text-amber-800">Rules determine when overtime applies and which multiplier should be used for pay and reporting.</p>
+      </div>
+    </div>
+  );
+}
+
+function GeneralSettings({ settings, onSave }) {
+  return (
+    <form onSubmit={onSave}>
+      <h3 className="text-2xl font-bold">General Tenant Configuration</h3>
+      <div className="mt-7 grid gap-x-8 gap-y-6 md:grid-cols-2">
+        <Field name="tenantName" label="Tenant Name *" value={settings.tenantName} />
+        <SelectField name="timeZone" label="Default Time Zone *" value={settings.timeZone} />
+        <SelectField name="currency" label="Default Currency *" value={settings.currency} helper="Used for billing rates and invoices" />
+        <SelectField name="weekStart" label="Week Start Day *" value={settings.weekStart} />
+        <SelectField
+          name="payPeriod"
+          label="Pay Period Frequency *"
+          value={settings.payPeriod}
+          options={["Biweekly", "Monthly", "Annually"]}
+        />
+        <SelectField name="rounding" label="Time Rounding Increment (minutes) *" value={settings.rounding} helper="Round time entries to nearest increment" />
+        <SelectField
+          name="maxHours"
+          label="Maximum Hours Per Day *"
+          value={settings.maxHours}
+          options={["8 hours", "10 hours", "12 hours"]}
+        />
+        <SelectField name="dateFormat" label="Date Format *" value={settings.dateFormat} />
+      </div>
+      <div className="mt-7">
+        <PurpleButton type="submit">Save Settings</PurpleButton>
+      </div>
+    </form>
+  );
+}
+
+function SimpleSettings({ title, onAction }) {
+  return (
+    <div>
+      <h3 className="text-2xl font-bold">{title}</h3>
+      <p className="mt-3 text-base text-slate-600">Settings ready for configuration.</p>
+      <div className="mt-6">
+        <PurpleButton onClick={() => onAction(`${title} saved`)}>Save {title}</PurpleButton>
+      </div>
+    </div>
+  );
+}
+
+function ProfileModal({ profile, onClose, onSubmit }) {
+  return (
+    <Modal title="Tenant Profile" onClose={onClose}>
+      <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-base font-bold text-white">
+            {profile.name.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-950">{profile.name}</p>
+            <p className="text-sm text-slate-600">{profile.email}</p>
+            <p className="mt-1 text-xs font-medium text-slate-500">{profile.role}</p>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={onSubmit} className="space-y-4">
+        <ModalField name="name" label="Name" defaultValue={profile.name} />
+        <ModalField name="email" label="Email" defaultValue={profile.email} type="email" />
+        <ModalActions onClose={onClose} submitLabel="Save Profile" />
+      </form>
+    </Modal>
+  );
+}
+
+function UserModal({ item, onClose, onSubmit }) {
+  return (
+    <Modal title={item ? "Edit User" : "Add User"} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <ModalField name="name" label="Name" defaultValue={item?.name || ""} />
+        <ModalField name="email" label="Email" defaultValue={item?.email || ""} type="email" />
+        <ModalSelect name="role" label="Role" defaultValue={item?.role || "Employee"} options={["Admin", "Manager", "Employee"]} />
+        <ModalSelect name="status" label="Status" defaultValue={item?.status || "Active"} options={["Active", "Inactive"]} />
+        <ModalField name="department" label="Department" defaultValue={item?.department || "Engineering"} />
+        <ModalActions onClose={onClose} submitLabel={item ? "Save User" : "Add User"} />
+      </form>
+    </Modal>
+  );
+}
+
+function DepartmentModal({ item, onClose, onSubmit }) {
+  return (
+    <Modal title={item ? "Edit Department" : "Create Department"} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <ModalField name="name" label="Department Name" defaultValue={item?.name || ""} />
+        <ModalField name="head" label="Department Head" defaultValue={item?.head || ""} />
+        <ModalField name="employees" label="Total Employees" defaultValue={item?.employees || "1 member"} />
+        <ModalActions onClose={onClose} submitLabel={item ? "Save Department" : "Create Department"} />
+      </form>
+    </Modal>
+  );
+}
+
+function BillingRateModal({ item, onClose, onSubmit }) {
+  return (
+    <Modal title={item ? "Edit Billing Rate" : "Add Billing Rate"} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <ModalField name="role" label="Role" defaultValue={item?.role || ""} />
+        <ModalField name="project" label="Project" defaultValue={item?.project || "All Projects"} />
+        <ModalField name="rate" label="Rate" defaultValue={item?.rate || "INR 2,500/hour"} />
+        <ModalSelect name="type" label="Type" defaultValue={item?.type || "Hourly"} options={["Hourly", "Daily", "Monthly"]} />
+        <ModalActions onClose={onClose} submitLabel={item ? "Save Billing Rate" : "Add Billing Rate"} />
+      </form>
+    </Modal>
+  );
+}
+
+function OvertimeRuleModal({ item, onClose, onSubmit }) {
+  return (
+    <Modal title={item ? "Edit Overtime Rule" : "Add Overtime Rule"} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <ModalField name="name" label="Rule Name" defaultValue={item?.name || ""} />
+        <ModalField name="threshold" label="Threshold" defaultValue={item?.threshold || "After 40 hours"} />
+        <ModalField name="multiplier" label="Pay Multiplier" defaultValue={item?.multiplier || "1.5x"} />
+        <ModalField name="appliesTo" label="Applies To" defaultValue={item?.appliesTo || "All Employees"} />
+        <ModalActions onClose={onClose} submitLabel={item ? "Save Overtime Rule" : "Add Overtime Rule"} />
+      </form>
+    </Modal>
+  );
+}
+
+function PolicyModal({ onClose, onSubmit }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4">
+      <button type="button" className="absolute inset-0" aria-label="Close policy modal" onClick={onClose} />
+      <section className="relative z-10 w-full max-w-3xl rounded-2xl bg-white px-10 py-9 shadow-2xl">
+        <div className="mb-7 flex items-center justify-between">
+          <h3 className="text-3xl font-bold tracking-tight text-slate-950">Add New Policy</h3>
+          <button type="button" onClick={onClose} className="text-3xl leading-none text-slate-500 hover:text-slate-800">x</button>
+        </div>
+
+        <form onSubmit={onSubmit} className="space-y-6">
+          <label className="block">
+            <span className="mb-3 block text-base font-semibold text-slate-800">Policy Name *</span>
+            <input
+              name="title"
+              required
+              className="h-12 w-full rounded-lg border border-slate-300 px-4 text-base outline-none focus:border-violet-600 focus:ring-2 focus:ring-violet-100"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-3 block text-base font-semibold text-slate-800">Description *</span>
+            <textarea
+              name="description"
+              required
+              rows={5}
+              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-violet-600 focus:ring-2 focus:ring-violet-100"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-3 block text-base font-semibold text-slate-800">Applies To *</span>
+            <select
+              name="appliesTo"
+              defaultValue="All users"
+              className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base outline-none focus:border-violet-600 focus:ring-2 focus:ring-violet-100"
+            >
+              <option>All users</option>
+              <option>All employees</option>
+              <option>Managers & above</option>
+              <option>Specific departments</option>
+            </select>
+          </label>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <OutlineButton onClick={onClose}>Cancel</OutlineButton>
+            <PurpleButton type="submit">Add Policy</PurpleButton>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function PlansModal({ currentPlan, plans, region, billing, onRegionChange, onBillingChange, onClose, onSelect }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4">
+      <button type="button" className="absolute inset-0" aria-label="Close plans" onClick={onClose} />
+      <section className="relative z-10 w-full max-w-5xl rounded-xl bg-white p-6 shadow-2xl">
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-2xl font-bold text-slate-950">Choose Subscription Plan</h3>
+            <p className="mt-2 text-sm text-slate-600">Select Starter, Professional, or Enterprise with the same pricing and regions as the subscription page.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded border border-slate-300 px-3 py-1 text-sm">x</button>
+        </div>
+
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <span className="text-sm font-medium text-slate-700">Region:</span>
+          {Object.entries(subscriptionRegionMeta).map(([key, meta]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onRegionChange(key)}
+              className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+                region === key ? "bg-gradient-to-r from-violet-700 to-fuchsia-600 text-white" : "bg-white text-slate-700"
+              }`}
+            >
+              {meta.label}
+            </button>
+          ))}
+          <span className="ml-auto text-sm text-slate-500">{subscriptionRegionMeta[region].code}</span>
+        </div>
+
+        <div className="mb-6 inline-flex rounded-xl border border-slate-200 bg-white p-1">
+          {["monthly", "annual"].map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onBillingChange(option)}
+              className={`rounded-lg px-6 py-2 text-sm font-semibold capitalize ${
+                billing === option ? "bg-gradient-to-r from-violet-700 to-fuchsia-600 text-white" : "text-slate-700"
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          {plans.map((plan) => {
+            const isCurrent = plan.name === currentPlan.name;
+            const price = formatSubscriptionRange(plan, region, billing);
+            const suffix = plan.custom ? "" : billing === "annual" ? "/user/yr" : "/user/mo";
+            return (
+              <article
+                key={plan.name}
+                className={`flex min-h-[320px] flex-col rounded-xl border p-5 ${
+                  isCurrent ? "border-violet-500 bg-violet-50" : "border-slate-300 bg-white"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xl font-bold text-slate-950">{plan.name}</h4>
+                  {isCurrent ? <StatusBadge value="Active" /> : null}
+                </div>
+                <p className={`${plan.custom ? "mt-4 text-2xl" : "mt-4 text-3xl"} font-bold text-slate-950`}>
+                  {price}<span className="text-sm">{suffix}</span>
+                </p>
+                <p className="mt-4 text-sm leading-6 text-slate-600">{plan.description}</p>
+                <div className="mt-5 space-y-3 text-sm text-slate-700">
+                  <p>{plan.seats}</p>
+                  <p>{plan.support}</p>
+                  {plan.features.slice(0, 3).map((feature) => (
+                    <p key={feature}>{feature}</p>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onSelect(plan)}
+                  className={`mt-auto rounded-lg px-4 py-3 text-sm font-bold ${
+                    isCurrent
+                      ? "border border-violet-500 bg-white text-violet-700"
+                      : "bg-gradient-to-r from-violet-700 to-fuchsia-600 text-white"
+                  }`}
+                >
+                  {isCurrent ? "Current Plan" : `Choose ${plan.name}`}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Modal({ title, children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4">
+      <button type="button" className="absolute inset-0" aria-label="Close modal" onClick={onClose} />
+      <section className="relative z-10 w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+        <div className="mb-5 flex items-center justify-between">
+          <h3 className="text-xl font-bold text-slate-950">{title}</h3>
+          <button type="button" onClick={onClose} className="rounded border border-slate-300 px-3 py-1 text-sm">x</button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function ModalField({ name, label, defaultValue, type = "text" }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span>
+      <input
+        name={name}
+        type={type}
+        defaultValue={defaultValue}
+        required
+        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-base"
+      />
+    </label>
+  );
+}
+
+function ModalSelect({ name, label, defaultValue, options }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span>
+      <select name={name} defaultValue={defaultValue} className="h-11 w-full rounded-lg border border-slate-300 px-3 text-base">
+        {options.map((option) => <option key={option}>{option}</option>)}
       </select>
     </label>
+  );
+}
+
+function ModalActions({ onClose, submitLabel }) {
+  return (
+    <div className="flex justify-end gap-3 pt-2">
+      <OutlineButton onClick={onClose}>Cancel</OutlineButton>
+      <PurpleButton type="submit">{submitLabel}</PurpleButton>
+    </div>
+  );
+}
+
+function Field({ name, label, value }) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span>
+      <input
+        name={name}
+        defaultValue={value}
+        className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-900"
+      />
+    </label>
+  );
+}
+
+function SelectField({ name, label, value, helper, options }) {
+  const optionItems = options || [value];
+
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span>
+      <select name={name} defaultValue={value} className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base text-slate-900">
+        {optionItems.map((option) => (
+          <option key={option}>{option}</option>
+        ))}
+      </select>
+      {helper ? <span className="mt-2 block text-sm text-slate-500">{helper}</span> : null}
+    </label>
+  );
+}
+
+function StatusBadge({ value }) {
+  const isActive = value === "Active";
+  return (
+    <span className={`inline-flex rounded border px-3 py-1 text-sm ${isActive ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-400 bg-slate-50 text-slate-600"}`}>
+      {value}
+    </span>
+  );
+}
+
+function OutlineButton({ children, onClick, type = "button" }) {
+  return (
+    <button type={type} onClick={onClick} className="inline-flex items-center gap-2 rounded border border-slate-400 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+      {children}
+    </button>
+  );
+}
+
+function DangerButton({ children, onClick }) {
+  return (
+    <button type="button" onClick={onClick} className="inline-flex items-center gap-2 rounded border border-red-400 bg-white px-4 py-2 text-sm font-semibold text-red-600">
+      {children}
+    </button>
+  );
+}
+
+function SmallIconButton({ children, onClick }) {
+  return (
+    <button type="button" onClick={onClick} className="flex h-8 w-8 items-center justify-center rounded border border-slate-400 bg-white text-sm font-semibold">
+      {children}
+    </button>
+  );
+}
+
+function InfoBlock({ label, value, large = false }) {
+  return (
+    <div>
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className={`mt-2 font-semibold text-slate-950 ${large ? "text-xl" : "text-base"}`}>{value}</p>
+    </div>
+  );
+}
+
+function ToggleSwitch({ enabled, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative inline-flex h-7 w-14 rounded-full border-2 transition ${
+        enabled ? "border-emerald-600 bg-emerald-100" : "border-slate-400 bg-slate-100"
+      }`}
+    >
+      <span className={`absolute top-1 h-4 w-4 rounded-full transition ${enabled ? "right-1 bg-emerald-600" : "left-1 bg-slate-400"}`} />
+    </button>
   );
 }

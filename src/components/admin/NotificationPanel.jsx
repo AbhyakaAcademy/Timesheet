@@ -1,6 +1,7 @@
 import { X, AlertCircle, CheckCircle, Info, DollarSign } from 'lucide-react';
+import { useState } from 'react';
 
-const notifications = [
+const initialNotifications = [
   {
     id: 1,
     type: 'success',
@@ -53,7 +54,43 @@ const notifications = [
   },
 ];
 
+const DISMISSED_NOTIFICATIONS_KEY = 'adminDismissedNotificationIds';
+
+function readDismissedNotificationIds() {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DISMISSED_NOTIFICATIONS_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissedNotificationIds(ids) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(DISMISSED_NOTIFICATIONS_KEY, JSON.stringify([...new Set(ids.map(String))]));
+}
+
+function getVisibleNotifications() {
+  const dismissedIds = new Set(readDismissedNotificationIds());
+  return initialNotifications.filter((notification) => !dismissedIds.has(String(notification.id)));
+}
+
 export function NotificationPanel({ isOpen, onClose }) {
+  const [notifications, setNotifications] = useState(getVisibleNotifications);
+
+  const clearAllNotifications = () => {
+    writeDismissedNotificationIds(initialNotifications.map((notification) => notification.id));
+    setNotifications([]);
+    onClose();
+  };
+
+  const clearNotification = (notificationId) => {
+    writeDismissedNotificationIds([...readDismissedNotificationIds(), notificationId]);
+    setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -73,12 +110,21 @@ export function NotificationPanel({ isOpen, onClose }) {
               <h2 className="text-lg font-semibold text-gray-900">Notifications</h2>
               <p className="text-sm text-gray-600">{notifications.length} unread notifications</p>
             </div>
-            <button
-              onClick={onClose}
-              className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={clearAllNotifications}
+                className="text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                Clear
+              </button>
+              <button
+                onClick={onClose}
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -97,7 +143,17 @@ export function NotificationPanel({ isOpen, onClose }) {
                       <Icon className={`h-5 w-5 ${notification.color}`} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900">{notification.title}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm font-medium text-gray-900">{notification.title}</p>
+                        <button
+                          type="button"
+                          onClick={() => clearNotification(notification.id)}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-xs font-semibold leading-none text-gray-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                          aria-label="Clear notification"
+                        >
+                          x
+                        </button>
+                      </div>
                       <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
                       <p className="text-xs text-gray-500 mt-2">{notification.time}</p>
                     </div>

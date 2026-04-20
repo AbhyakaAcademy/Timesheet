@@ -8,7 +8,7 @@ import { TimerCard } from "./components/TimerCard";
 import { TimesheetsTable } from "./components/TimesheetsTable";
 import { apiFetch } from "@/lib/api";
 import HelpButton from "@/components/support/HelpButton";
-import { getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
+import { clearClientNotification, clearClientNotifications, getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
 
 const TENANT_DASHBOARD_STORAGE_KEY = "tenantAdminDashboardState";
 
@@ -63,6 +63,9 @@ const toRelative = (iso) => {
   return `${diffDay}d ago`;
 };
 
+const getLatestRejectionComment = (sheet) =>
+  (sheet?.approvals || []).find((approval) => approval.action === "REJECTED")?.comment || "";
+
 export default function EmployeeDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -112,6 +115,8 @@ export default function EmployeeDashboardPage() {
     setNotifications(
       (notificationsRes || []).map((item) => ({
         id: String(item.id),
+        apiId: item.id,
+        source: "api",
         title: item.title,
         message: item.message,
         time: toRelative(item.created_at),
@@ -232,6 +237,7 @@ export default function EmployeeDashboardPage() {
         .filter((item) => item.clientName === userDisplayName)
         .map((item) => ({
           id: String(item.id),
+          source: "support",
           title: item.title,
           message: item.message,
           time: toRelative(item.time),
@@ -414,6 +420,40 @@ export default function EmployeeDashboardPage() {
     }
   };
 
+  const handleUploadFiles = async (files) => {
+    if (!timesheet?.id) {
+      throw new Error("Timesheet not available for file upload.");
+    }
+
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
+
+    await apiFetch(`/timesheets/${timesheet.id}/attachments`, {
+      method: "POST",
+      body: formData,
+    });
+  };
+
+  const handleClearNotification = async (item) => {
+    if (item.source === "api" && item.apiId) {
+      setNotifications((prev) => prev.filter((notification) => notification.apiId !== item.apiId));
+      await apiFetch(`/notifications/${item.apiId}`, { method: "DELETE" }).catch(() => {});
+      return;
+    }
+
+    clearClientNotification(item.id);
+    setSupportNotifications(getClientNotifications());
+  };
+
+  const handleClearAllNotifications = async () => {
+    const apiIds = notifications.filter((item) => item.apiId).map((item) => item.apiId);
+    setNotifications([]);
+    clearClientNotifications(userDisplayName);
+    setSupportNotifications(getClientNotifications());
+
+    await Promise.all(apiIds.map((id) => apiFetch(`/notifications/${id}`, { method: "DELETE" }).catch(() => {})));
+  };
+
   if (loading) {
     return <div className="p-6 text-sm text-gray-600">Loading employee dashboard...</div>;
   }
@@ -423,8 +463,11 @@ export default function EmployeeDashboardPage() {
       <DashboardHeader
         notificationCount={totalNotificationCount}
         onNotificationClick={handleMarkNotificationsRead}
+        onClearAllNotifications={handleClearAllNotifications}
+        onClearNotification={handleClearNotification}
         notifications={combinedNotifications}
         initialName={userDisplayName}
+        initialEmail={me?.email || ""}
         role={me?.role || "employee"}
       />
 
@@ -442,12 +485,14 @@ export default function EmployeeDashboardPage() {
           onPunchIn={handlePunchIn}
           onPunchOut={handlePunchOut}
           onManualEntry={handleManualEntry}
+          onFilesUpload={handleUploadFiles}
           busy={busy}
         />
 
         <TimesheetsTable
           rows={rows}
           status={timesheet?.status || "DRAFT"}
+          rejectionComment={getLatestRejectionComment(timesheet)}
           projects={projects}
           historyTimesheets={previousTimesheets}
           onSubmit={handleSubmitTimesheet}

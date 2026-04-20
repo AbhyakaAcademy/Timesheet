@@ -1,4 +1,4 @@
-import { Bell, Globe, Mail, Palette, User, Database } from "lucide-react";
+import { Bell, Globe, Palette, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { adminApi } from "@/lib/adminTenantApi";
 
@@ -114,23 +114,6 @@ export function Settings() {
             ))}
             <Field label="Trial Period (Days)" type="number" value={String(settings.trialPeriod)} onChange={(value) => updateSettings({ trialPeriod: Number(value || 0) })} />
             <button className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white" onClick={() => saveSettings()}>Save Configuration</button>
-          </div>
-        </SettingsCard>
-
-        <SettingsCard icon={Database} title="API Access" subtitle="Manage API keys and services">
-          <div className="space-y-4">
-            <Field label="Master API Key" value={settings.apiKey} onChange={(value) => updateSettings({ apiKey: value })} />
-            <button className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700" onClick={() => updateSettings({ apiKey: `sk_live_${Date.now()}` })}>Generate New Key</button>
-            <button className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white" onClick={() => saveSettings()}>Save API Settings</button>
-          </div>
-        </SettingsCard>
-
-        <SettingsCard icon={Mail} title="Email & Integrations" subtitle="Connection status">
-          <div className="space-y-3">
-            <Toggle label="SMTP Connected" value={settings.smtpConnected} onChange={(value) => updateSettings({ smtpConnected: value })} />
-            <Toggle label="Analytics Connected" value={settings.analyticsConnected} onChange={(value) => updateSettings({ analyticsConnected: value })} />
-            <Toggle label="Slack Connected" value={settings.slackConnected} onChange={(value) => updateSettings({ slackConnected: value })} />
-            <button className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white" onClick={() => saveSettings()}>Save Connections</button>
           </div>
         </SettingsCard>
 

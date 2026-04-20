@@ -113,6 +113,23 @@ class TimesheetLine(models.Model):
         ordering = ("date", "id")
 
 
+class TimesheetAttachment(models.Model):
+    timesheet = models.ForeignKey(Timesheet, on_delete=models.CASCADE, related_name="attachments")
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="timesheet_attachments",
+    )
+    file = models.FileField(upload_to="timesheet_attachments/%Y/%m/%d/")
+    original_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=120, blank=True)
+    size = models.PositiveBigIntegerField(default=0)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-uploaded_at",)
+
+
 class ApprovalAction(models.TextChoices):
     APPROVED = "APPROVED", "Approved"
     REJECTED = "REJECTED", "Rejected"

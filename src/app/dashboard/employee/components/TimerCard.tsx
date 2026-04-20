@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Clock, Play, Square } from "lucide-react";
+import { ArrowRight, Clock, Play, Square, Upload } from "lucide-react";
 
 type ProjectOption = {
   id: number;
@@ -35,6 +35,7 @@ type TimerCardProps = {
   onPunchIn: (payload: { projectId: number; note: string }) => Promise<void>;
   onPunchOut: (entryId: number, payload: { note: string }) => Promise<void>;
   onManualEntry: (payload: ManualPayload) => Promise<void>;
+  onFilesUpload: (files: File[]) => Promise<void>;
   busy: boolean;
 };
 
@@ -62,10 +63,31 @@ const getLocalDateValue = () => {
   return `${year}-${month}-${day}`;
 };
 
-const timeZoneOptions = [
-  { value: "Asia/Kolkata", label: "India (IST)" },
-  { value: "America/New_York", label: "US (ET)" },
-  { value: "Europe/London", label: "UK (GMT/BST)" },
+const timeZoneOptionGroups = [
+  {
+    label: "India",
+    options: [{ value: "Asia/Kolkata", label: "India (IST)" }],
+  },
+  {
+    label: "United States",
+    options: [
+      { value: "America/New_York", label: "Eastern Time (ET)" },
+      { value: "America/Chicago", label: "Central Time (CT)" },
+      { value: "America/Denver", label: "Mountain Time (MT)" },
+      { value: "America/Phoenix", label: "Arizona Time (MST)" },
+      { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
+      { value: "America/Anchorage", label: "Alaska Time (AKT)" },
+      { value: "America/Adak", label: "Hawaii-Aleutian Time (HAT)" },
+      { value: "Pacific/Honolulu", label: "Hawaii Time (HT)" },
+      { value: "America/Puerto_Rico", label: "Atlantic Time (Puerto Rico)" },
+      { value: "Pacific/Pago_Pago", label: "Samoa Time (American Samoa)" },
+      { value: "Pacific/Guam", label: "Chamorro Time (Guam)" },
+    ],
+  },
+  {
+    label: "United Kingdom",
+    options: [{ value: "Europe/London", label: "UK (GMT/BST)" }],
+  },
 ];
 
 const getDateValueForTimeZone = (timeZone: string, value = new Date()) => {
@@ -178,6 +200,7 @@ export function TimerCard({
   onPunchIn,
   onPunchOut,
   onManualEntry,
+  onFilesUpload,
   busy,
 }: TimerCardProps) {
   const [now, setNow] = useState(() => new Date());
@@ -194,6 +217,9 @@ export function TimerCard({
   const [manualTimeZone, setManualTimeZone] = useState("Asia/Kolkata");
   const [manualError, setManualError] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const [uploadBusy, setUploadBusy] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 1000);
@@ -239,6 +265,34 @@ export function TimerCard({
       setNote("");
     } catch (error: any) {
       setErrorMessage(error.message || "Punch out failed.");
+    }
+  };
+
+  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
+    setSelectedFiles(files);
+    setUploadMessage("Files selected. Click Submit Files to send them for manager review.");
+    event.target.value = "";
+  };
+
+  const handleSubmitFiles = async () => {
+    if (!selectedFiles.length) {
+      setUploadMessage("Please choose at least one file before submitting.");
+      return;
+    }
+
+    setUploadBusy(true);
+    setUploadMessage("");
+    try {
+      await onFilesUpload(selectedFiles);
+      setUploadMessage(`${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"} submitted for manager review.`);
+      setSelectedFiles([]);
+    } catch (error: any) {
+      setUploadMessage(error.message || "File upload failed.");
+    } finally {
+      setUploadBusy(false);
     }
   };
 
@@ -348,7 +402,35 @@ export function TimerCard({
               {activeEntry ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
               {activeEntry ? "Punch Out" : "Punch In"}
             </button>
+            <label className={`inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-8 py-4 text-base font-semibold text-indigo-700 transition hover:bg-indigo-100 ${busy || uploadBusy ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
+              <Upload className="h-4 w-4" />
+              Upload Files
+              <input
+                type="file"
+                multiple
+                disabled={busy || uploadBusy}
+                className="sr-only"
+                onChange={handleFilesSelected}
+              />
+            </label>
+            {selectedFiles.length ? (
+              <button
+                type="button"
+                onClick={handleSubmitFiles}
+                disabled={busy || uploadBusy}
+                className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-8 py-4 text-base font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {uploadBusy ? "Submitting..." : "Submit Files"}
+              </button>
+            ) : null}
           </div>
+          {selectedFiles.length ? (
+            <div className="mt-3 rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-700">
+              <p className="font-medium text-gray-800">Selected files</p>
+              <p className="mt-1 truncate">{selectedFiles.map((file) => file.name).join(", ")}</p>
+            </div>
+          ) : null}
+          {uploadMessage ? <p className="mt-2 text-xs text-indigo-700">{uploadMessage}</p> : null}
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white p-4">
@@ -479,10 +561,14 @@ export function TimerCard({
                 }}
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                {timeZoneOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+                {timeZoneOptionGroups.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>

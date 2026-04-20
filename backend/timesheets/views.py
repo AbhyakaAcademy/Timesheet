@@ -2,8 +2,10 @@ from datetime import timedelta
 
 from django.db import IntegrityError
 from django.db.models import Sum
+from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -20,6 +22,7 @@ from timesheets.models import (
     TimeEntrySource,
     Timesheet,
     TimesheetApproval,
+    TimesheetAttachment,
     TimesheetLine,
     TimesheetStatus,
 )
@@ -32,6 +35,7 @@ from timesheets.serializers import (
     PunchInSerializer,
     PunchOutSerializer,
     TimeEntrySerializer,
+    TimesheetAttachmentSerializer,
     TimesheetLineCreateSerializer,
     TimesheetLineSerializer,
     TimesheetSerializer,
@@ -367,6 +371,69 @@ class SubmitTimesheetView(APIView):
         return Response(TimesheetSerializer(timesheet).data)
 
 
+class TimesheetAttachmentUploadView(APIView):
+    permission_classes = [IsAuthenticated, IsEmployee]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, timesheet_id):
+        timesheet = get_object_or_404(Timesheet, id=timesheet_id, employee=request.user)
+        files = request.FILES.getlist("files") or request.FILES.getlist("file")
+        if not files:
+            return Response({"detail": "Select at least one file to upload."}, status=status.HTTP_400_BAD_REQUEST)
+
+        attachments = [
+            TimesheetAttachment.objects.create(
+                timesheet=timesheet,
+                uploaded_by=request.user,
+                file=file_obj,
+                original_name=file_obj.name,
+                content_type=getattr(file_obj, "content_type", "") or "",
+                size=file_obj.size,
+            )
+            for file_obj in files
+        ]
+        notify_employee_managers(
+            request.user,
+            "Timesheet file uploaded",
+            f"{employee_display_name(request.user)} uploaded {len(attachments)} file(s) for week {timesheet.week_start}.",
+        )
+        return Response(TimesheetAttachmentSerializer(attachments, many=True).data, status=status.HTTP_201_CREATED)
+
+
+class TimesheetAttachmentDownloadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, attachment_id):
+        attachment = get_object_or_404(
+            TimesheetAttachment.objects.select_related("timesheet", "timesheet__employee"),
+            id=attachment_id,
+        )
+        is_owner = attachment.timesheet.employee_id == request.user.id
+        is_manager = request.user.role == UserRole.MANAGER and manager_has_employee(request.user, attachment.timesheet.employee_id)
+        is_staff_role = request.user.role in {UserRole.ADMIN, UserRole.TENANT}
+        if not (is_owner or is_manager or is_staff_role):
+            return Response({"detail": "You do not have access to this file."}, status=status.HTTP_403_FORBIDDEN)
+
+        response = FileResponse(attachment.file.open("rb"), content_type=attachment.content_type or "application/octet-stream")
+        response["Content-Disposition"] = f'inline; filename="{attachment.original_name}"'
+        return response
+
+
+class ManagerTimesheetAttachmentListView(APIView):
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+
+    def get(self, request):
+        queryset = TimesheetAttachment.objects.select_related(
+            "timesheet",
+            "timesheet__employee",
+            "uploaded_by",
+        )
+        if request.user.role == UserRole.MANAGER:
+            employee_ids = TeamMembership.objects.filter(manager=request.user).values_list("employee_id", flat=True)
+            queryset = queryset.filter(timesheet__employee_id__in=employee_ids)
+        return Response(TimesheetAttachmentSerializer(queryset[:50], many=True).data)
+
+
 class ManagerTimesheetListView(APIView):
     permission_classes = [IsAuthenticated, IsManagerOrAdmin]
 
@@ -396,7 +463,7 @@ class ManagerTimesheetDetailView(APIView):
 
     def get(self, request, timesheet_id):
         timesheet = get_object_or_404(
-            Timesheet.objects.select_related("employee").prefetch_related("lines", "approvals"),
+            Timesheet.objects.select_related("employee").prefetch_related("lines", "approvals", "attachments"),
             id=timesheet_id,
         )
         if request.user.role == UserRole.MANAGER and not manager_has_employee(request.user, timesheet.employee_id):

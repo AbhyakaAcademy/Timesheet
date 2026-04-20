@@ -27,3 +27,11 @@ class MarkNotificationReadView(APIView):
             queryset = queryset.filter(id__in=ids)
         updated = queryset.update(is_read=True, read_at=timezone.now())
         return Response({"updated": updated})
+
+
+class NotificationDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, notification_id):
+        deleted, _ = Notification.objects.filter(id=notification_id, recipient=request.user).delete()
+        return Response({"deleted": deleted})

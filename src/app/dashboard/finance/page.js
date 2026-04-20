@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { clearSession } from '@/lib/auth'
 import HelpButton from '@/components/support/HelpButton'
-import { getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from '@/lib/supportTickets'
+import { clearClientNotification, clearClientNotifications, getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from '@/lib/supportTickets'
 
 const navItems = [
   { id: 'clients', label: 'Clients', icon: UsersIcon },
@@ -112,6 +112,10 @@ export default function FinanceDashboard() {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('clients')
   const [supportNotifications, setSupportNotifications] = useState(() => getClientNotifications())
+  const [financeProfile, setFinanceProfile] = useState(() => ({
+    name: typeof window === 'undefined' ? 'Finance Admin' : localStorage.getItem('financeProfileName') || 'Finance Admin',
+    email: typeof window === 'undefined' ? 'admin@finance.com' : localStorage.getItem('financeProfileEmail') || 'admin@finance.com'
+  }))
 
   const handleLogout = () => {
     clearSession()
@@ -135,11 +139,16 @@ export default function FinanceDashboard() {
       <Sidebar
         activeTab={activeTab}
         onSelect={setActiveTab}
-        onLogout={handleLogout}
-        notifications={financeNotifications}
-        unreadCount={unreadFinanceNotifications}
       />
       <main className="flex-1 px-10 py-8">
+        <FinanceTopBar
+          profile={financeProfile}
+          onProfileChange={setFinanceProfile}
+          onLogout={handleLogout}
+          notifications={financeNotifications}
+          unreadCount={unreadFinanceNotifications}
+          onNotificationsChange={() => setSupportNotifications(getClientNotifications())}
+        />
         {activeTab === 'clients' && <ClientsSection />}
         {activeTab === 'projects' && <ProjectsSection />}
         {activeTab === 'rates' && <RatesSection />}
@@ -151,17 +160,7 @@ export default function FinanceDashboard() {
   )
 }
 
-function Sidebar({ activeTab, onSelect, onLogout, notifications, unreadCount }) {
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
-
-  const toggleNotifications = () => {
-    const nextOpen = !isNotificationsOpen
-    setIsNotificationsOpen(nextOpen)
-    if (nextOpen && unreadCount > 0) {
-      markClientNotificationsRead('Finance Dashboard')
-    }
-  }
-
+function Sidebar({ activeTab, onSelect }) {
   return (
     <aside className="w-72 bg-white border-r border-slate-200 min-h-screen flex flex-col">
       <div className="px-8 py-6 border-b border-slate-200">
@@ -188,36 +187,135 @@ function Sidebar({ activeTab, onSelect, onLogout, notifications, unreadCount }) 
           )
         })}
       </nav>
-      <div className="px-6 py-6 border-t border-slate-200">
-        <div className="relative mb-4">
+    </aside>
+  )
+}
+
+function FinanceTopBar({ profile, onProfileChange, onLogout, notifications, unreadCount, onNotificationsChange }) {
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [profileDraft, setProfileDraft] = useState(profile)
+  const headerActionsRef = useRef(null)
+  const [quickSettings, setQuickSettings] = useState(() => {
+    if (typeof window === 'undefined') {
+      return { invoiceAlerts: true, exportAlerts: true, compactRows: false }
+    }
+
+    try {
+      return {
+        invoiceAlerts: true,
+        exportAlerts: true,
+        compactRows: false,
+        ...JSON.parse(localStorage.getItem('financeQuickSettings') || '{}')
+      }
+    } catch {
+      return { invoiceAlerts: true, exportAlerts: true, compactRows: false }
+    }
+  })
+  const initials = profile.name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase() || 'FA'
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!headerActionsRef.current?.contains(event.target)) {
+        setIsNotificationsOpen(false)
+        setIsSettingsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [])
+
+  const toggleNotifications = () => {
+    const nextOpen = !isNotificationsOpen
+    setIsNotificationsOpen(nextOpen)
+    setIsSettingsOpen(false)
+    if (nextOpen && unreadCount > 0) {
+      markClientNotificationsRead('Finance Dashboard')
+    }
+  }
+
+  const toggleSettings = () => {
+    setIsNotificationsOpen(false)
+    setIsSettingsOpen(prev => !prev)
+  }
+
+  const handleQuickSettingChange = (key) => {
+    setQuickSettings(prev => {
+      const nextSettings = { ...prev, [key]: !prev[key] }
+      localStorage.setItem('financeQuickSettings', JSON.stringify(nextSettings))
+      return nextSettings
+    })
+  }
+
+  const openProfile = () => {
+    setProfileDraft(profile)
+    setIsEditingProfile(false)
+    setIsProfileOpen(true)
+    setIsNotificationsOpen(false)
+    setIsSettingsOpen(false)
+  }
+
+  const saveProfile = () => {
+    const nextProfile = {
+      name: profileDraft.name.trim() || profile.name,
+      email: profileDraft.email.trim() || profile.email
+    }
+    localStorage.setItem('financeProfileName', nextProfile.name)
+    localStorage.setItem('financeProfileEmail', nextProfile.email)
+    onProfileChange(nextProfile)
+    setIsEditingProfile(false)
+  }
+
+  const handleClearAllNotifications = () => {
+    clearClientNotifications('Finance Dashboard')
+    onNotificationsChange?.()
+    setIsNotificationsOpen(false)
+  }
+
+  return (
+    <header className="-mx-10 -mt-8 mb-8 border-b border-slate-200 bg-white px-10 py-4">
+      <div className="flex items-center justify-between gap-4">
+        <button type="button" onClick={openProfile} className="flex items-center gap-3 rounded-xl px-2 py-1.5 text-left hover:bg-slate-50">
+          <div className="h-11 w-11 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold">
+            {initials}
+          </div>
+          <div>
+            <p className="text-sm font-semibold">{profile.name}</p>
+            <p className="text-xs text-slate-500">{profile.email}</p>
+          </div>
+        </button>
+
+        <div ref={headerActionsRef} className="flex items-center gap-3">
+          <div className="relative">
           <button
             type="button"
             onClick={toggleNotifications}
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:bg-slate-100"
+            className="rounded-full border border-slate-200 bg-slate-50 p-3 transition hover:bg-slate-100"
+            aria-label="Notifications"
           >
-            <div className="flex items-center justify-between gap-3">
-              <span className="inline-flex items-center gap-3 text-sm font-semibold text-slate-700">
-                <BellIcon />
-                Notifications
-              </span>
+            <span className="relative inline-flex">
+              <BellIcon />
               {unreadCount > 0 ? (
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-blue-600 px-2 text-xs font-semibold text-white">
+                <span className="absolute -right-3 -top-3 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-xs font-semibold text-white">
                   {unreadCount}
                 </span>
               ) : null}
-            </div>
+            </span>
           </button>
 
           {isNotificationsOpen ? (
-            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+            <div className="absolute right-0 z-30 mt-3 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900">Notifications</p>
                 <button
                   type="button"
-                  className="text-xs font-medium text-slate-500 hover:text-slate-700"
-                  onClick={() => setIsNotificationsOpen(false)}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                  onClick={handleClearAllNotifications}
                 >
-                  Close
+                  Clear
                 </button>
               </div>
 
@@ -227,7 +325,20 @@ function Sidebar({ activeTab, onSelect, onLogout, notifications, unreadCount }) 
                     key={item.id}
                     className={`rounded-xl border px-3 py-2 ${item.read ? 'border-slate-200 bg-white' : 'border-blue-200 bg-blue-50'}`}
                   >
-                    <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm font-medium text-slate-900">{item.title}</p>
+                      <button
+                        type="button"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-semibold leading-none text-slate-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                        onClick={() => {
+                          clearClientNotification(item.id)
+                          onNotificationsChange?.()
+                        }}
+                        aria-label="Clear notification"
+                      >
+                        x
+                      </button>
+                    </div>
                     <p className="mt-1 text-xs text-slate-600">{item.message}</p>
                   </div>
                 )) : (
@@ -240,25 +351,104 @@ function Sidebar({ activeTab, onSelect, onLogout, notifications, unreadCount }) 
           ) : null}
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="h-11 w-11 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold">
-            FA
-          </div>
-          <div>
-            <p className="text-sm font-semibold">Finance Admin</p>
-            <p className="text-xs text-slate-500">admin@finance.com</p>
-          </div>
+        <div className="relative">
+        <button
+          type="button"
+          onClick={toggleSettings}
+          className="rounded-full border border-slate-200 bg-slate-50 p-3 text-slate-600 transition hover:bg-slate-100"
+          aria-label="Settings"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7A2 2 0 1 1 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1Z" />
+          </svg>
+        </button>
+
+          {isSettingsOpen ? (
+            <section className="absolute right-0 z-30 mt-3 w-[300px] rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Quick Settings</p>
+                  <p className="text-xs text-slate-500">Finance dashboard preferences</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="text-xs text-slate-500 hover:text-slate-700"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {[
+                  ['invoiceAlerts', 'Invoice alerts', 'Show invoice payment and due date reminders.'],
+                  ['exportAlerts', 'Export alerts', 'Notify when finance exports are ready.'],
+                  ['compactRows', 'Compact rows', 'Use tighter spacing for finance tables.']
+                ].map(([key, title, description]) => (
+                  <label key={key} className="flex items-start justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                    <span>
+                      <span className="block text-sm font-medium text-slate-900">{title}</span>
+                      <span className="mt-0.5 block text-xs text-slate-500">{description}</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(quickSettings[key])}
+                      onChange={() => handleQuickSettingChange(key)}
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </label>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
+
         <button
           type="button"
           onClick={onLogout}
-          className="mt-6 flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
+          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 hover:text-slate-900"
         >
           <LogoutIcon />
           Logout
         </button>
       </div>
-    </aside>
+      </div>
+
+      {isProfileOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
+          <section className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <h2 className="text-xl font-semibold text-slate-900">Finance Profile</h2>
+              <button type="button" onClick={() => setIsProfileOpen(false)} className="rounded-full border border-slate-200 px-3 py-1 text-slate-500">x</button>
+            </div>
+            <div className="space-y-4 px-5 py-5">
+              {isEditingProfile ? (
+                <>
+                  <input value={profileDraft.name} onChange={event => setProfileDraft(prev => ({ ...prev, name: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm" />
+                  <input type="email" value={profileDraft.email} onChange={event => setProfileDraft(prev => ({ ...prev, email: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm" />
+                </>
+              ) : (
+                <>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-xs text-slate-500">Name</p><p className="text-sm font-semibold">{profile.name}</p></div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><p className="text-xs text-slate-500">Email</p><p className="text-sm font-semibold">{profile.email}</p></div>
+                </>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              {isEditingProfile ? (
+                <>
+                  <button type="button" onClick={() => setIsEditingProfile(false)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm">Cancel</button>
+                  <button type="button" onClick={saveProfile} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Save</button>
+                </>
+              ) : (
+                <button type="button" onClick={() => setIsEditingProfile(true)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Edit</button>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </header>
   )
 }
 

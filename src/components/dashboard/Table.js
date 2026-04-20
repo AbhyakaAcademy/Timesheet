@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiFetchBlob } from "@/lib/api";
 import { getManagerDashboardSlice, setManagerDashboardSlice } from "@/lib/managerDashboardStorage";
 
 const statusTone = {
@@ -87,6 +87,16 @@ const getLineDurationSeconds = (line) => {
   return Math.max(Math.round(Number(line?.hours || 0) * 3600), 0);
 };
 
+const formatFileSize = (bytes) => {
+  const size = Number(bytes || 0);
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const getLatestRejectedApproval = (timesheet) =>
+  (timesheet?.approvals || []).find((approval) => approval.action === "REJECTED");
+
 export default function Table({ onPendingCountChange }) {
   const [filter, setFilter] = useState(() => getManagerDashboardSlice("filter", "All"));
   const [timesheetsByStatus, setTimesheetsByStatus] = useState(() =>
@@ -94,6 +104,7 @@ export default function Table({ onPendingCountChange }) {
   );
   const [selectedTimesheet, setSelectedTimesheet] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [projects, setProjects] = useState([]);
   const [editingEntryId, setEditingEntryId] = useState(null);
   const [draftEntry, setDraftEntry] = useState({});
@@ -175,6 +186,7 @@ export default function Table({ onPendingCountChange }) {
 
   const openDetail = async (row) => {
     setSelectedTimesheet(row);
+    setSelectedFiles([]);
     setBusy(true);
     try {
       const [detail, projectsList] = await Promise.all([
@@ -183,21 +195,48 @@ export default function Table({ onPendingCountChange }) {
       ]);
       setSelectedDetail(detail);
       setProjects(projectsList || []);
+      setSelectedFiles(detail.attachments || []);
     } catch (error) {
       setErrorMessage(error.message || "Unable to load timesheet detail.");
       setSelectedTimesheet(null);
       setSelectedDetail(null);
+      setSelectedFiles([]);
     } finally {
       setBusy(false);
     }
   };
 
+  const openUploadedFile = async (file) => {
+    try {
+      const blob = await apiFetchBlob(file.download_url);
+      const url = URL.createObjectURL(blob);
+      const opened = window.open(url, "_blank", "noopener,noreferrer");
+
+      if (!opened) {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = file.original_name;
+        link.click();
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      setErrorMessage(error.message || "Unable to open uploaded file.");
+    }
+  };
+
   const runAction = async (action) => {
     if (!selectedTimesheet) return;
-    const comment =
-      action === "reject"
-        ? window.prompt("Reject comment", "") || ""
-        : "";
+    let comment = "";
+    if (action === "reject") {
+      const enteredComment = window.prompt("Reject comment", "");
+      if (enteredComment === null) return;
+      comment = enteredComment.trim();
+      if (!comment) {
+        window.alert("Please enter a rejection comment.");
+        return;
+      }
+    }
     setBusy(true);
     try {
       await apiFetch(`/manager/timesheets/${selectedTimesheet.id}/${action}`, {
@@ -210,17 +249,18 @@ export default function Table({ onPendingCountChange }) {
         Approved:
           nextStatus === "Approved"
             ? [{ ...selectedTimesheet, status: "Approved" }, ...timesheetsByStatus.Approved.filter((item) => item.id !== selectedTimesheet.id)]
-            : timesheetsByStatus.Approved,
+            : timesheetsByStatus.Approved.filter((item) => item.id !== selectedTimesheet.id),
         Rejected:
           nextStatus === "Rejected"
             ? [{ ...selectedTimesheet, status: "Rejected" }, ...timesheetsByStatus.Rejected.filter((item) => item.id !== selectedTimesheet.id)]
-            : timesheetsByStatus.Rejected,
+            : timesheetsByStatus.Rejected.filter((item) => item.id !== selectedTimesheet.id),
       };
       setTimesheetsByStatus(nextTimesheets);
       setManagerDashboardSlice("timesheetsByStatus", nextTimesheets);
       onPendingCountChange?.(nextTimesheets.Pending.length);
       setSelectedTimesheet(null);
       setSelectedDetail(null);
+      setSelectedFiles([]);
       await loadTimesheets();
     } catch (error) {
       setErrorMessage(error.message || `Unable to ${action} timesheet.`);
@@ -276,6 +316,10 @@ export default function Table({ onPendingCountChange }) {
 
   const canReviewAction =
     selectedTimesheet?.status === "Pending" || selectedDetail?.status === "SUBMITTED";
+  const canRejectAction =
+    canReviewAction || selectedTimesheet?.status === "Approved" || selectedDetail?.status === "APPROVED";
+  const canApproveAction = canReviewAction;
+  const latestRejectedApproval = getLatestRejectedApproval(selectedDetail);
 
   return (
     <div className="space-y-5">
@@ -356,7 +400,7 @@ export default function Table({ onPendingCountChange }) {
                 <h2 className="text-xl font-semibold">Timesheet Review</h2>
                 <p className="mt-1 text-base">Week starting {selectedTimesheet.weekStartingLabel}</p>
               </div>
-              <button type="button" onClick={() => { setSelectedTimesheet(null); setSelectedDetail(null); }} className="rounded-md p-1.5 transition hover:bg-white/20" aria-label="Close timesheet review">
+              <button type="button" onClick={() => { setSelectedTimesheet(null); setSelectedDetail(null); setSelectedFiles([]); }} className="rounded-md p-1.5 transition hover:bg-white/20" aria-label="Close timesheet review">
                 <svg viewBox="0 0 20 20" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                   <path d="m4 4 12 12M16 4 4 16" />
                 </svg>
@@ -380,10 +424,46 @@ export default function Table({ onPendingCountChange }) {
                   <p className="mt-1 text-sm text-gray-500">
                     Submitted: {selectedDetail?.submitted_at ? displayDateTime(selectedDetail.submitted_at) : selectedTimesheet.submittedLabel}
                   </p>
+                  {latestRejectedApproval?.comment ? (
+                    <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Rejection comment</p>
+                      <p className="mt-1 text-sm text-rose-800">{latestRejectedApproval.comment}</p>
+                      <p className="mt-1 text-xs text-rose-600">
+                        By {latestRejectedApproval.manager_name || latestRejectedApproval.manager_username || "Manager"} on {displayDateTime(latestRejectedApproval.acted_at)}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
               <div className="space-y-6 px-6 py-6">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">Uploaded Files</h3>
+                  <div className="mt-3 rounded-xl border border-gray-200 bg-white">
+                    {selectedFiles.length ? (
+                      selectedFiles.map((file) => (
+                        <div key={file.id} className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 last:border-b-0">
+                          <div>
+                            <p className="text-base font-semibold text-gray-900">{file.original_name}</p>
+                            <p className="mt-1 text-sm text-gray-500">
+                              {formatFileSize(file.size)} - Uploaded {displayDateTime(file.uploaded_at)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openUploadedFile(file)}
+                            className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+                          >
+                            Open
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="px-5 py-4 text-sm text-gray-500">No files uploaded for this timesheet.</p>
+                    )}
+                  </div>
+                </div>
+
                 <h3 className="text-xl font-semibold text-gray-900">Time Entries</h3>
 
                 <div className="space-y-4">
@@ -500,14 +580,16 @@ export default function Table({ onPendingCountChange }) {
               </div>
 
               <footer className="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
-                <button type="button" onClick={() => { setSelectedTimesheet(null); setSelectedDetail(null); }} className="rounded-xl border border-gray-300 bg-white px-6 py-2 text-base font-medium text-gray-700 transition hover:bg-gray-100">
+                <button type="button" onClick={() => { setSelectedTimesheet(null); setSelectedDetail(null); setSelectedFiles([]); }} className="rounded-xl border border-gray-300 bg-white px-6 py-2 text-base font-medium text-gray-700 transition hover:bg-gray-100">
                   Close
                 </button>
-                {canReviewAction ? (
+                {canRejectAction ? (
+                  <button type="button" disabled={busy} onClick={() => runAction("reject")} className="rounded-xl bg-red-600 px-6 py-2 text-base font-semibold text-white transition hover:bg-red-700 disabled:opacity-60">
+                    Reject
+                  </button>
+                ) : null}
+                {canApproveAction ? (
                   <>
-                    <button type="button" disabled={busy} onClick={() => runAction("reject")} className="rounded-xl bg-red-600 px-6 py-2 text-base font-semibold text-white transition hover:bg-red-700 disabled:opacity-60">
-                      Reject
-                    </button>
                     <button type="button" disabled={busy} onClick={() => runAction("approve")} className="rounded-xl bg-green-600 px-6 py-2 text-base font-semibold text-white transition hover:bg-green-700 disabled:opacity-60">
                       Approve
                     </button>

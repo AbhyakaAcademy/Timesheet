@@ -24,12 +24,20 @@ type TimesheetRow = {
 type TimesheetsTableProps = {
   rows: TimesheetRow[];
   status: string;
+  rejectionComment?: string;
   projects: ProjectOption[];
   historyTimesheets: {
     id: number;
     week_start: string;
     status: string;
     total_hours: number;
+    approvals?: {
+      action: string;
+      comment: string;
+      manager_name?: string;
+      manager_username?: string;
+      acted_at: string;
+    }[];
   }[];
   onSubmit: () => Promise<void>;
   onUpdateRow: (id: number, payload: Partial<TimesheetRow>) => Promise<void>;
@@ -97,9 +105,17 @@ const formatDurationTypingValue = (value: string) => {
   return `${digits.slice(0, 2)}:${digits.slice(2)}`;
 };
 
+const getLatestRejectionComment = (sheet?: {
+  approvals?: {
+    action: string;
+    comment: string;
+  }[];
+}) => (sheet?.approvals || []).find((approval) => approval.action === "REJECTED")?.comment || "";
+
 export function TimesheetsTable({
   rows,
   status,
+  rejectionComment = "",
   projects,
   historyTimesheets,
   onSubmit,
@@ -166,6 +182,12 @@ export function TimesheetsTable({
           <h2 className="text-lg font-semibold text-gray-900">My Timesheet</h2>
           <p className="text-sm text-gray-500">Current week entries and approval status</p>
           <p className="mt-1 text-xs font-medium text-indigo-700">Status: {status}</p>
+          {status === "REJECTED" && rejectionComment ? (
+            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase text-rose-700">Manager rejection comment</p>
+              <p className="mt-1 text-sm text-rose-800">{rejectionComment}</p>
+            </div>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -323,23 +345,32 @@ export function TimesheetsTable({
                 <span>Status</span>
               </div>
 
-              {historyTimesheets.map((sheet) => (
-                <div
-                  key={sheet.id}
-                  className="grid grid-cols-[180px_220px_120px_120px_220px_120px] px-4 py-3 text-sm text-gray-700 border-t border-gray-100"
-                >
-                  <span className="font-medium text-gray-900">{formatDisplayDate(sheet.week_start)}</span>
-                  <span>Timesheet TS-{sheet.id}</span>
-                  <span>{formatTrackedTime(Math.round(Number(sheet.total_hours || 0) * 3600))}</span>
-                  <span>-</span>
-                  <span>Week submission</span>
-                  <span>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${sheet.status === "APPROVED" ? "bg-emerald-100 text-emerald-700" : sheet.status === "REJECTED" ? "bg-rose-100 text-rose-700" : sheet.status === "SUBMITTED" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-700"}`}>
-                      {sheet.status}
+              {historyTimesheets.map((sheet) => {
+                const sheetRejectionComment = getLatestRejectionComment(sheet);
+                return (
+                  <div
+                    key={sheet.id}
+                    className="grid grid-cols-[180px_220px_120px_120px_220px_120px] px-4 py-3 text-sm text-gray-700 border-t border-gray-100"
+                  >
+                    <span className="font-medium text-gray-900">{formatDisplayDate(sheet.week_start)}</span>
+                    <span>Timesheet TS-{sheet.id}</span>
+                    <span>{formatTrackedTime(Math.round(Number(sheet.total_hours || 0) * 3600))}</span>
+                    <span>-</span>
+                    <span>
+                      {sheet.status === "REJECTED" && sheetRejectionComment ? (
+                        <span className="text-rose-700">Rejected: {sheetRejectionComment}</span>
+                      ) : (
+                        "Week submission"
+                      )}
                     </span>
-                  </span>
-                </div>
-              ))}
+                    <span>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${sheet.status === "APPROVED" ? "bg-emerald-100 text-emerald-700" : sheet.status === "REJECTED" ? "bg-rose-100 text-rose-700" : sheet.status === "SUBMITTED" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-700"}`}>
+                        {sheet.status}
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

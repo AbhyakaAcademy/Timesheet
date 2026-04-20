@@ -143,12 +143,38 @@ export function getClientNotifications(clientName) {
   return readStoredNotifications().filter((item) => !clientName || item.clientName === clientName);
 }
 
+export function createClientNotification({ clientName, title, message }) {
+  const notifications = readStoredNotifications();
+  const createdAt = new Date().toISOString();
+  const notification = {
+    id: `client-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    clientName,
+    title,
+    message,
+    time: createdAt,
+    read: false,
+  };
+
+  writeStoredNotifications([notification, ...notifications]);
+  return notification;
+}
+
 export function markClientNotificationsRead(clientName) {
   const notifications = readStoredNotifications();
   const nextNotifications = notifications.map((item) =>
     !clientName || item.clientName === clientName ? { ...item, read: true } : item
   );
   writeStoredNotifications(nextNotifications);
+}
+
+export function clearClientNotification(notificationId) {
+  const notifications = readStoredNotifications();
+  writeStoredNotifications(notifications.filter((item) => String(item.id) !== String(notificationId)));
+}
+
+export function clearClientNotifications(clientName) {
+  const notifications = readStoredNotifications();
+  writeStoredNotifications(notifications.filter((item) => clientName && item.clientName !== clientName));
 }
 
 export function subscribeToSupportTickets(listener) {

@@ -35,10 +35,31 @@ const formatDuration = (minutes: number) => {
   return `${hours}h ${mins.toString().padStart(2, "0")}m`;
 };
 
-const timeZoneOptions = [
-  { value: "Asia/Kolkata", label: "India (IST)" },
-  { value: "America/New_York", label: "US (ET)" },
-  { value: "Europe/London", label: "UK (GMT/BST)" },
+const timeZoneOptionGroups = [
+  {
+    label: "India",
+    options: [{ value: "Asia/Kolkata", label: "India (IST)" }],
+  },
+  {
+    label: "United States",
+    options: [
+      { value: "America/New_York", label: "Eastern Time (ET)" },
+      { value: "America/Chicago", label: "Central Time (CT)" },
+      { value: "America/Denver", label: "Mountain Time (MT)" },
+      { value: "America/Phoenix", label: "Arizona Time (MST)" },
+      { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
+      { value: "America/Anchorage", label: "Alaska Time (AKT)" },
+      { value: "America/Adak", label: "Hawaii-Aleutian Time (HAT)" },
+      { value: "Pacific/Honolulu", label: "Hawaii Time (HT)" },
+      { value: "America/Puerto_Rico", label: "Atlantic Time (Puerto Rico)" },
+      { value: "Pacific/Pago_Pago", label: "Samoa Time (American Samoa)" },
+      { value: "Pacific/Guam", label: "Chamorro Time (Guam)" },
+    ],
+  },
+  {
+    label: "United Kingdom",
+    options: [{ value: "Europe/London", label: "UK (GMT/BST)" }],
+  },
 ];
 
 const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
@@ -458,10 +479,14 @@ export function TimerCard({ onAddTimesheetEntry }: TimerCardProps) {
                 onChange={(event) => setManualTimeZone(event.target.value)}
                 className="mt-1 w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                {timeZoneOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+                {timeZoneOptionGroups.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </div>

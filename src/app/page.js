@@ -18,7 +18,7 @@ import {
   UserRoundPlus,
   Globe,
   Star,
-  Send,
+  // Send,
   Twitter,
   Linkedin,
   Facebook,
@@ -28,7 +28,7 @@ import {
 const regionMeta = {
   IN: { label: "India", displayCode: "IN", currency: "INR", symbol: "\u20B9", multiplier: 1, locale: "en-IN" },
   US: { label: "United States", displayCode: "US", currency: "USD", symbol: "$", multiplier: 0.012, locale: "en-US" },
-  UK: { label: "United Kingdom", displayCode: "GB", currency: "GBP", symbol: "\u00A3", multiplier: 0.0095, locale: "en-GB" }
+  UK: { label: "United Kingdom", displayCode: "UK", currency: "GBP", symbol: "\u00A3", multiplier: 0.0095, locale: "en-GB" }
 };
 
 const basePlans = [
@@ -54,14 +54,14 @@ const basePlans = [
   }
 ];
 
-const trustedCompanies = [
-  { name: "Global Solutions Inc", colors: "from-sky-500 to-blue-600" },
-  { name: "Innovation Labs", colors: "from-emerald-500 to-teal-600" },
-  { name: "Digital Dynamics", colors: "from-orange-500 to-rose-600" },
-  { name: "FutureStack", colors: "from-indigo-500 to-violet-600" },
-  { name: "TechCorp Industries", colors: "from-cyan-500 to-blue-500" },
-  { name: "Nova Operations", colors: "from-fuchsia-500 to-pink-600" }
-];
+// const trustedCompanies = [
+//   { name: "Global Solutions Inc", colors: "from-sky-500 to-blue-600" },
+//   { name: "Innovation Labs", colors: "from-emerald-500 to-teal-600" },
+//   { name: "Digital Dynamics", colors: "from-orange-500 to-rose-600" },
+//   { name: "FutureStack", colors: "from-indigo-500 to-violet-600" },
+//   { name: "TechCorp Industries", colors: "from-cyan-500 to-blue-500" },
+//   { name: "Nova Operations", colors: "from-fuchsia-500 to-pink-600" }
+// ];
 
 const demoSlots = ["09:00 AM", "10:30 AM", "12:00 PM", "02:30 PM", "04:00 PM", "05:30 PM"];
 
@@ -78,8 +78,8 @@ export default function LandingPage() {
   const [showScheduleDemo, setShowScheduleDemo] = useState(false);
   const [region, setRegion] = useState("IN");
   const todayIso = useMemo(() => toIsoDate(new Date()), []);
-  const [feedbackForm, setFeedbackForm] = useState({ name: "", email: "", rating: 0, feedback: "" });
-  const [feedbackList, setFeedbackList] = useState([
+  // const [feedbackForm, setFeedbackForm] = useState({ name: "", email: "", rating: 0, feedback: "" });
+  const feedbackList = [
     {
       name: "Sarah Johnson",
       role: "HR Director",
@@ -115,7 +115,7 @@ export default function LandingPage() {
       rating: 4.6,
       feedback: "The onboarding was smooth, and dashboard visibility for department heads is excellent."
     }
-  ]);
+  ];
 
   const [scheduleDemoForm, setScheduleDemoForm] = useState({
     name: "",
@@ -164,21 +164,21 @@ export default function LandingPage() {
     setShowHelp(false);
   };
 
-  const handleFeedbackSubmit = (e) => {
-    e.preventDefault();
-    if (!feedbackForm.name || !feedbackForm.email || feedbackForm.rating < 1) return;
-    setFeedbackList((prev) => [
-      {
-        name: feedbackForm.name,
-        role: "Customer",
-        company: "Verified User",
-        rating: feedbackForm.rating,
-        feedback: feedbackForm.feedback || "Great experience with Abhyaka."
-      },
-      ...prev
-    ]);
-    setFeedbackForm({ name: "", email: "", rating: 0, feedback: "" });
-  };
+  // const handleFeedbackSubmit = (e) => {
+  //   e.preventDefault();
+  //   if (!feedbackForm.name || !feedbackForm.email || feedbackForm.rating < 1) return;
+  //   setFeedbackList((prev) => [
+  //     {
+  //       name: feedbackForm.name,
+  //       role: "Customer",
+  //       company: "Verified User",
+  //       rating: feedbackForm.rating,
+  //       feedback: feedbackForm.feedback || "Great experience with Abhyaka."
+  //     },
+  //     ...prev
+  //   ]);
+  //   setFeedbackForm({ name: "", email: "", rating: 0, feedback: "" });
+  // };
 
   const openInfo = (label) => {
     window.alert(`${label} page will be available soon.`);
@@ -495,6 +495,7 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/*
       <section className="relative z-10 px-6 py-16 bg-white overflow-hidden">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
@@ -516,6 +517,7 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      */}
 
       <section className="relative z-10 px-6 py-24 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
         <div className="max-w-7xl mx-auto">
@@ -552,6 +554,7 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/*
       <section className="relative z-10 px-6 py-24 bg-white">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12">
@@ -599,6 +602,7 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      */}
 
       <footer className="px-6 py-16 bg-[#071a3c] text-slate-300 border-t border-slate-700/40">
         <div className="max-w-[1520px] mx-auto">

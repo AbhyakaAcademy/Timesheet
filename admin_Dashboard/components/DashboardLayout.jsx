@@ -14,7 +14,6 @@ import {
   BarChart3,
   Activity,
   HeadphonesIcon,
-  Settings,
   Search,
   Bell,
   LogOut,
@@ -33,7 +32,6 @@ const navigation = [
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
   { name: 'System Health', href: '/dashboard/system-health', icon: Activity },
   { name: 'Customer Support', href: '/dashboard/support', icon: HeadphonesIcon },
-  { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ];
 
 export function DashboardLayout({ children }) {
@@ -67,7 +65,6 @@ export function DashboardLayout({ children }) {
             </div>
             <div>
               <h1 className="text-lg font-semibold text-gray-900">TimeTrack</h1>
-              <p className="text-xs text-gray-500">SaaS Platform</p>
             </div>
           </div>
 
@@ -136,7 +133,6 @@ export function DashboardLayout({ children }) {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-900">John Doe</p>
-                  <p className="text-xs text-gray-500">Platform Owner</p>
                 </div>
               </div>
             </div>

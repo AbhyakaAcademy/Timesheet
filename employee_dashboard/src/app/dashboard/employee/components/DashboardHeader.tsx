@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell, Check, Pencil, User, X } from "lucide-react";
 
 type DashboardHeaderProps = {
   notificationCount: number;
   onNotificationClick: () => void;
+  onClearAllNotifications?: () => void;
+  onClearNotification?: (notificationId: string) => void;
   notifications: { id: string; title: string; message: string; time: string }[];
   initialName?: string;
   role?: string;
@@ -14,6 +16,8 @@ type DashboardHeaderProps = {
 export function DashboardHeader({
   notificationCount,
   onNotificationClick,
+  onClearAllNotifications,
+  onClearNotification,
   notifications,
   initialName = "John Doe",
   role = "Software Engineer",
@@ -22,6 +26,18 @@ export function DashboardHeader({
   const [name, setName] = useState(initialName);
   const [draftName, setDraftName] = useState(initialName);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const notificationRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!notificationRef.current?.contains(event.target as Node)) {
+        setIsNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
   const handleStartEdit = () => {
     setDraftName(name);
@@ -45,6 +61,11 @@ export function DashboardHeader({
   const handleToggleNotifications = () => {
     setIsNotificationsOpen((prev) => !prev);
     onNotificationClick();
+  };
+
+  const handleClearAllNotifications = () => {
+    onClearAllNotifications?.();
+    setIsNotificationsOpen(false);
   };
 
   return (
@@ -104,7 +125,7 @@ export function DashboardHeader({
           </div>
         </div>
 
-        <div className="flex items-center gap-4 relative">
+        <div ref={notificationRef} className="flex items-center gap-4 relative">
           <button
             type="button"
             onClick={handleToggleNotifications}
@@ -127,10 +148,10 @@ export function DashboardHeader({
                 </p>
                 <button
                   type="button"
-                  onClick={() => setIsNotificationsOpen(false)}
-                  className="text-xs text-gray-500 hover:text-gray-700"
+                  onClick={handleClearAllNotifications}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
                 >
-                  Close
+                  Clear
                 </button>
               </div>
               <div className="mt-3 space-y-3">
@@ -139,11 +160,23 @@ export function DashboardHeader({
                     key={item.id}
                     className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2"
                   >
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-900">
-                        {item.title}
-                      </p>
-                      <span className="text-xs text-gray-500">{item.time}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">
+                          {item.title}
+                        </p>
+                        <span className="text-xs text-gray-500">{item.time}</span>
+                      </div>
+                      {onClearNotification ? (
+                        <button
+                          type="button"
+                          onClick={() => onClearNotification(item.id)}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-xs font-semibold leading-none text-gray-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
+                          aria-label="Clear notification"
+                        >
+                          x
+                        </button>
+                      ) : null}
                     </div>
                     <p className="mt-1 text-xs text-gray-600">
                       {item.message}
