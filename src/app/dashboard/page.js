@@ -171,6 +171,13 @@ const defaultProfile = {
   phone: "",
 };
 
+const TENANT_NOTIFICATIONS_STORAGE_KEY = "tenantDashboardNotifications";
+
+const defaultTenantNotifications = [
+  { id: 1, title: "Subscription", message: "Enterprise plan renews on Mar 1, 2026.", read: false },
+  { id: 2, title: "Policy", message: "Working Hours Policy was updated recently.", read: false },
+];
+
 function titleCase(value) {
   if (!value) return "";
   return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
@@ -289,6 +296,15 @@ function normalizeProfile(profile) {
   };
 }
 
+function normalizeTenantNotification(notification) {
+  return {
+    id: notification.id,
+    title: notification.title || "",
+    message: notification.message || "",
+    read: Boolean(notification.read),
+  };
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [active, setActive] = useState("Users");
@@ -309,10 +325,8 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState(defaultProfile);
   const [auditLogs, setAuditLogs] = useState([fallbackAuditLog]);
   const [loading, setLoading] = useState(true);
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: "Subscription", message: "Enterprise plan renews on Mar 1, 2026." },
-    { id: 2, title: "Policy", message: "Working Hours Policy was updated recently." },
-  ]);
+  const [notifications, setNotifications] = useState(defaultTenantNotifications);
+  const notificationsReadyRef = useRef(false);
 
   const showToast = useCallback((message) => {
     setToast(message);
@@ -320,6 +334,22 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    try {
+      const storedNotifications = window.localStorage.getItem(TENANT_NOTIFICATIONS_STORAGE_KEY);
+      if (storedNotifications) {
+        const parsed = JSON.parse(storedNotifications);
+        if (Array.isArray(parsed)) {
+          setNotifications(parsed.map(normalizeTenantNotification));
+        }
+      } else {
+        window.localStorage.setItem(TENANT_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(defaultTenantNotifications));
+      }
+    } catch {
+      // Keep the built-in notifications if localStorage is unavailable or malformed.
+    } finally {
+      notificationsReadyRef.current = true;
+    }
+
     let isMounted = true;
 
     async function loadTenantData() {
@@ -377,6 +407,20 @@ export default function DashboardPage() {
       isMounted = false;
     };
   }, [showToast]);
+
+  useEffect(() => {
+    if (!notificationsReadyRef.current) return;
+
+    try {
+      window.localStorage.setItem(TENANT_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(notifications));
+    } catch {
+      // Ignore storage write failures so the dashboard still works normally.
+    }
+  }, [notifications]);
+
+  const markAllNotificationsRead = () => {
+    setNotifications((current) => current.map((item) => ({ ...item, read: true })));
+  };
 
   const saveUser = async (event) => {
     event.preventDefault();
@@ -691,7 +735,13 @@ export default function DashboardPage() {
                 setShowNotifications(nextValue);
                 return;
               }
-              setShowNotifications((current) => !current);
+              setShowNotifications((current) => {
+                const nextOpen = !current;
+                if (nextOpen) {
+                  markAllNotificationsRead();
+                }
+                return nextOpen;
+              });
             }}
             onClearNotifications={() => {
               setNotifications([]);
@@ -834,9 +884,9 @@ function TenantHeader({
               aria-label="Notifications"
             >
               <Bell className="h-5 w-5" />
-              {notifications.length > 0 ? (
+              {notifications.some((item) => !item.read) ? (
                 <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
-                  {notifications.length}
+                  {notifications.filter((item) => !item.read).length}
                 </span>
               ) : null}
             </button>
@@ -878,10 +928,17 @@ function TenantHeader({
                   <li className="px-4 py-5 text-sm text-gray-500">No notifications yet.</li>
                 ) : null}
                 {notifications.map((item) => (
-                  <li key={item.id} className="border-b border-gray-100 px-4 py-3 last:border-b-0">
+                  <li
+                    key={item.id}
+                    className={`border-b border-gray-100 px-4 py-3 last:border-b-0 ${
+                      item.read ? "bg-white" : "bg-blue-50"
+                    }`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm font-semibold text-gray-950">{item.title}</p>
+                        <p className={`text-sm ${item.read ? "font-medium text-gray-900" : "font-semibold text-gray-950"}`}>
+                          {item.title}
+                        </p>
                         <p className="mt-1 text-sm text-gray-600">{item.message}</p>
                       </div>
                       <button

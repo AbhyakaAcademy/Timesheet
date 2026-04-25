@@ -1,4 +1,13 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000/api";
+const EMPTY_SESSION = Object.freeze({
+  token: "",
+  role: "",
+  userName: "",
+});
+const AUTH_SESSION_EVENT = "auth-session-updated";
+
+let cachedSessionKey = "";
+let cachedSession = EMPTY_SESSION;
 
 export const ROLE_DASHBOARD_MAP = {
   employee: "/dashboard/employee",
@@ -56,6 +65,13 @@ export function persistSession(payload) {
   localStorage.setItem("userName", user.username || "");
   localStorage.setItem("userEmail", user.email || "");
   localStorage.setItem("isAuthenticated", "true");
+  cachedSession = {
+    token: access,
+    role: user.role,
+    userName: user.username || "",
+  };
+  cachedSessionKey = `${cachedSession.token}|${cachedSession.role}|${cachedSession.userName}`;
+  window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
 }
 
 export function clearSession() {
@@ -65,15 +81,14 @@ export function clearSession() {
   localStorage.removeItem("userName");
   localStorage.removeItem("userEmail");
   localStorage.removeItem("isAuthenticated");
+  cachedSession = EMPTY_SESSION;
+  cachedSessionKey = "";
+  window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
 }
 
-export function getSession() {
+function readSessionFromStorage() {
   if (typeof window === "undefined") {
-    return {
-      token: "",
-      role: "",
-      userName: "",
-    };
+    return EMPTY_SESSION;
   }
 
   return {
@@ -81,6 +96,23 @@ export function getSession() {
     role: localStorage.getItem("userRole"),
     userName: localStorage.getItem("userName"),
   };
+}
+
+export function getSession() {
+  return readSessionFromStorage();
+}
+
+export function getSessionSnapshot() {
+  const nextSession = readSessionFromStorage();
+  const nextKey = `${nextSession.token || ""}|${nextSession.role || ""}|${nextSession.userName || ""}`;
+
+  if (nextKey === cachedSessionKey) {
+    return cachedSession;
+  }
+
+  cachedSession = nextSession;
+  cachedSessionKey = nextKey;
+  return nextSession;
 }
 
 export function getRoleHome(role) {

@@ -1,18 +1,27 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 
-import { getRoleHome, getSession } from "@/lib/auth";
+import { getRoleHome, getSessionSnapshot } from "@/lib/auth";
 
 export default function RouteGuard({ allowedRoles = [], children }) {
   const router = useRouter();
-  const pathname = usePathname();
-  const session = useMemo(() => getSession(), []);
+  const session = useSyncExternalStore(
+    (callback) => {
+      if (typeof window === "undefined") return () => {};
+      window.addEventListener("storage", callback);
+      window.addEventListener("auth-session-updated", callback);
+      return () => {
+        window.removeEventListener("storage", callback);
+        window.removeEventListener("auth-session-updated", callback);
+      };
+    },
+    getSessionSnapshot,
+    getSessionSnapshot
+  );
 
-  const hasAccess =
-    Boolean(session.token && session.role) &&
-    (allowedRoles.length === 0 || allowedRoles.includes(session.role));
+  const hasAccess = Boolean(session.token && session.role) && (allowedRoles.length === 0 || allowedRoles.includes(session.role));
 
   useEffect(() => {
     if (!session.token || !session.role) {
@@ -24,7 +33,7 @@ export default function RouteGuard({ allowedRoles = [], children }) {
       router.replace(getRoleHome(session.role));
       return;
     }
-  }, [allowedRoles, pathname, router, session]);
+  }, [allowedRoles, router, session]);
 
   if (!hasAccess) {
     return null;

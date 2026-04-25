@@ -77,7 +77,7 @@ export default function EmployeeDashboardPage() {
   const [timesheetHistory, setTimesheetHistory] = useState([]);
   const [summary, setSummary] = useState(null);
   const [notifications, setNotifications] = useState([]);
-  const [supportNotifications, setSupportNotifications] = useState(() => getClientNotifications());
+  const [supportNotifications, setSupportNotifications] = useState([]);
   const [maxDailyHours, setMaxDailyHours] = useState(12);
 
   useEffect(() => {
@@ -137,7 +137,10 @@ export default function EmployeeDashboardPage() {
     })();
   }, [loadData]);
 
-  useEffect(() => subscribeToClientNotifications(setSupportNotifications), []);
+  useEffect(() => {
+    setSupportNotifications(getClientNotifications());
+    return subscribeToClientNotifications(setSupportNotifications);
+  }, []);
 
   const rows = useMemo(() => {
     if (!timesheet) return [];

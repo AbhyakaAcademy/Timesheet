@@ -30,3 +30,29 @@ class User(AbstractUser):
         blank=True,
         related_name="users",
     )
+
+
+class TenantSignupRequest(models.Model):
+    email = models.EmailField(unique=True)
+    organization_name = models.CharField(max_length=140)
+    first_name = models.CharField(max_length=150, blank=True)
+    last_name = models.CharField(max_length=150, blank=True)
+    password_hash = models.CharField(max_length=128)
+    verification_token_hash = models.CharField(max_length=64, unique=True)
+    token_expires_at = models.DateTimeField()
+    verified_user = models.OneToOneField(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="signup_request",
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.email} -> {self.organization_name}"

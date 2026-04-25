@@ -6,55 +6,55 @@ import { clearSession } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import { clearClientNotification, clearClientNotifications, getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
 
+const DEFAULT_QUICK_SETTINGS = {
+  approvalReminders: true,
+  weeklyReports: true,
+  compactRows: false,
+};
+
+const DEFAULT_MANAGER_PROFILE = {
+  name: "Manager",
+  email: "manager@abhyaka.com",
+  role: "Manager",
+};
+
 export default function Header() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [supportNotifications, setSupportNotifications] = useState(() => getClientNotifications());
-  const [quickSettings, setQuickSettings] = useState(() => {
-    if (typeof window === "undefined") {
-      return {
-        approvalReminders: true,
-        weeklyReports: true,
-        compactRows: false,
-      };
-    }
-
-    try {
-      return {
-        approvalReminders: true,
-        weeklyReports: true,
-        compactRows: false,
-        ...JSON.parse(window.localStorage.getItem("managerQuickSettings") || "{}"),
-      };
-    } catch {
-      return {
-        approvalReminders: true,
-        weeklyReports: true,
-        compactRows: false,
-      };
-    }
-  });
-  const [managerProfile, setManagerProfile] = useState(() => {
-    if (typeof window === "undefined") {
-      return {
-        name: "Manager",
-        email: "manager@abhyaka.com",
-        role: "Manager",
-      };
-    }
-
-    return {
-      name: window.localStorage.getItem("userName") || "Manager",
-      email: window.localStorage.getItem("userEmail") || "manager@abhyaka.com",
-      role: "Manager",
-    };
-  });
+  const [supportNotifications, setSupportNotifications] = useState([]);
+  const [quickSettings, setQuickSettings] = useState(DEFAULT_QUICK_SETTINGS);
+  const [managerProfile, setManagerProfile] = useState(DEFAULT_MANAGER_PROFILE);
   const [profileDraft, setProfileDraft] = useState(managerProfile);
   const [profileEditing, setProfileEditing] = useState(false);
   const popoverRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      setQuickSettings({
+        ...DEFAULT_QUICK_SETTINGS,
+        ...JSON.parse(window.localStorage.getItem("managerQuickSettings") || "{}"),
+      });
+    } catch {
+      setQuickSettings(DEFAULT_QUICK_SETTINGS);
+    }
+
+    setManagerProfile({
+      name: window.localStorage.getItem("userName") || DEFAULT_MANAGER_PROFILE.name,
+      email: window.localStorage.getItem("userEmail") || DEFAULT_MANAGER_PROFILE.email,
+      role: DEFAULT_MANAGER_PROFILE.role,
+    });
+  }, []);
+
+  useEffect(() => {
+    setSupportNotifications(getClientNotifications());
+  }, []);
+
+  useEffect(() => {
+    setProfileDraft(managerProfile);
+  }, [managerProfile]);
 
   useEffect(() => {
     let active = true;

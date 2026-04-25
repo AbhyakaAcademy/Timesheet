@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Clock,
   Eye,
@@ -11,23 +10,25 @@ import {
   Loader2,
   Check
 } from "lucide-react";
+import { requestTenantSignup } from "@/lib/signup";
 
 export default function SignUpPage() {
-  const router = useRouter();
-
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [email, setEmail] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [emailError, setEmailError] = useState("");
+  const [organizationError, setOrganizationError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const [isLoading, setIsLoading] = useState(false);
-  const showInfo = (msg) => window.alert(msg);
 
   // ---------------- VALIDATIONS ----------------
 
@@ -45,9 +46,22 @@ export default function SignUpPage() {
     return true;
   };
 
+  const validateOrganization = (value) => {
+    if (!value?.trim()) {
+      setOrganizationError("Organization name is required");
+      return false;
+    }
+    setOrganizationError("");
+    return true;
+  };
+
   const validatePassword = (value) => {
     if (!value) {
       setPasswordError("Password is required");
+      return false;
+    }
+    if (/\s/.test(value)) {
+      setPasswordError("Password cannot contain spaces");
       return false;
     }
     if (value.length < 8) {
@@ -83,21 +97,36 @@ export default function SignUpPage() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setFormError("");
+    setSuccessMessage("");
 
     const emailValid = validateEmail(email);
+    const organizationValid = validateOrganization(organizationName);
     const passwordValid = validatePassword(password);
     const confirmValid = validateConfirmPassword(confirmPassword);
 
-    if (!emailValid || !passwordValid || !confirmValid) return;
+    if (!emailValid || !organizationValid || !passwordValid || !confirmValid) return;
 
     setIsLoading(true);
 
-    // Simulated API call
-    setTimeout(() => {
-      setIsLoading(false);
-      alert("Account created successfully! You can now sign in.");
-      router.push("/login");
-    }, 2000);
+    requestTenantSignup({
+      email,
+      password,
+      confirm_password: confirmPassword,
+      organization_name: organizationName,
+    })
+      .then((response) => {
+        setSuccessMessage(
+          response?.message ||
+            "We sent a verification email. Please check your inbox before signing in."
+        );
+      })
+      .catch((error) => {
+        setFormError(error.message || "Signup failed.");
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   };
 
   const passwordChecks = [
@@ -161,7 +190,42 @@ export default function SignUpPage() {
               Start your 30-day free trial. No credit card required.
             </p>
 
+            {formError ? (
+              <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {formError}
+              </div>
+            ) : null}
+
+            {successMessage ? (
+              <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                {successMessage}
+              </div>
+            ) : null}
+
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* ORGANIZATION */}
+              <div>
+                <label className="block text-sm text-gray-700 mb-2">
+                  Organization Name *
+                </label>
+                <input
+                  type="text"
+                  value={organizationName}
+                  onChange={(e) => {
+                    setOrganizationName(e.target.value);
+                    if (organizationError) validateOrganization(e.target.value);
+                  }}
+                  onBlur={(e) => validateOrganization(e.target.value)}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${
+                    organizationError
+                      ? "border-red-300 focus:ring-red-500/20"
+                      : "border-gray-300 focus:ring-indigo-500/20"
+                  }`}
+                  placeholder="Your company or tenant name"
+                />
+                {organizationError && <p className="text-red-600 text-sm mt-1">{organizationError}</p>}
+              </div>
+
               {/* EMAIL */}
               <div>
                 <label className="block text-sm text-gray-700 mb-2">
@@ -193,14 +257,19 @@ export default function SignUpPage() {
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (passwordError) validatePassword(e.target.value);
-                    }}
-                    onBlur={(e) => validatePassword(e.target.value)}
-                    className="no-password-reveal w-full px-4 py-3 border rounded-lg pr-12"
-                    placeholder="Min 8 chars, uppercase, number, symbol"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (passwordError) validatePassword(e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === " ") {
+                      e.preventDefault();
+                    }
+                  }}
+                  onBlur={(e) => validatePassword(e.target.value)}
+                  className="no-password-reveal w-full px-4 py-3 border rounded-lg pr-12"
+                  placeholder="Min 8 chars, uppercase, number, symbol"
                   />
                   <button
                     type="button"
@@ -221,13 +290,18 @@ export default function SignUpPage() {
                 <div className="relative">
                   <input
                     type={showConfirmPassword ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => {
-                      setConfirmPassword(e.target.value);
-                      if (confirmPasswordError) validateConfirmPassword(e.target.value);
-                    }}
-                    onBlur={(e) => validateConfirmPassword(e.target.value)}
-                    className="no-password-reveal w-full px-4 py-3 border rounded-lg pr-12"
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    if (confirmPasswordError) validateConfirmPassword(e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === " ") {
+                      e.preventDefault();
+                    }
+                  }}
+                  onBlur={(e) => validateConfirmPassword(e.target.value)}
+                  className="no-password-reveal w-full px-4 py-3 border rounded-lg pr-12"
                     placeholder="Re-enter password"
                   />
                   <button
@@ -269,7 +343,7 @@ export default function SignUpPage() {
               {/* SSO */}
               <button
                 type="button"
-                onClick={() => showInfo("SSO sign-up flow started.")}
+                onClick={() => window.alert("SSO sign-up flow started.")}
                 className="w-full border py-3 rounded-lg flex items-center justify-center gap-2"
               >
                 <Shield />
@@ -277,7 +351,7 @@ export default function SignUpPage() {
               </button>
             </form>
 
-            <p className="mt-6 text-center text-sm">
+            <p className="mt-6 text-center text-sm text-gray-600">
               Already have an account?{" "}
               <Link href="/login" className="text-indigo-600 font-semibold">
                 Login
