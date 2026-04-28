@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from tenants.models import (
+    DashboardActivityLog,
     Department,
     PlatformSettings,
     TenantAuditLog,
@@ -167,6 +168,39 @@ class TenantAuditLogSerializer(serializers.ModelSerializer):
         return ""
 
 
+class DashboardActivityLogSerializer(serializers.ModelSerializer):
+    timestamp = serializers.SerializerMethodField()
+    clientName = serializers.SerializerMethodField()
+    actorName = serializers.CharField(source="actor_name", read_only=True)
+    actorEmail = serializers.CharField(source="actor_email", read_only=True)
+    actorRole = serializers.CharField(source="actor_role", read_only=True)
+
+    class Meta:
+        model = DashboardActivityLog
+        fields = (
+            "id",
+            "timestamp",
+            "clientName",
+            "actorName",
+            "actorEmail",
+            "actorRole",
+            "dashboard",
+            "path",
+            "event_type",
+            "severity",
+            "summary",
+            "details",
+            "duration_ms",
+            "metadata",
+        )
+
+    def get_timestamp(self, obj):
+        return obj.created_at.strftime("%b %d, %Y %I:%M %p")
+
+    def get_clientName(self, obj):
+        return obj.organization.name if obj.organization else "Platform"
+
+
 class TenantUserSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
@@ -174,6 +208,8 @@ class TenantUserSerializer(serializers.ModelSerializer):
     lastActive = serializers.SerializerMethodField()
     joinDate = serializers.SerializerMethodField()
     organization_name = serializers.CharField(source="organization.name", read_only=True)
+    invitation_pending = serializers.SerializerMethodField()
+    invitation_accepted_at = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -189,6 +225,8 @@ class TenantUserSerializer(serializers.ModelSerializer):
             "joinDate",
             "organization",
             "organization_name",
+            "invitation_pending",
+            "invitation_accepted_at",
         )
 
     def get_name(self, obj):
@@ -208,6 +246,14 @@ class TenantUserSerializer(serializers.ModelSerializer):
     def get_joinDate(self, obj):
         return obj.date_joined.strftime("%b %d, %Y")
 
+    def get_invitation_pending(self, obj):
+        invitation = getattr(obj, "invitation", None)
+        return bool(invitation and invitation.accepted_at is None)
+
+    def get_invitation_accepted_at(self, obj):
+        invitation = getattr(obj, "invitation", None)
+        return invitation.accepted_at if invitation else None
+
 
 class TenantSettingsSerializer(serializers.ModelSerializer):
     tenantName = serializers.CharField(source="name", read_only=True)
@@ -221,6 +267,8 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
     primary = serializers.CharField(source="primary_color", read_only=True)
     secondary = serializers.CharField(source="secondary_color", read_only=True)
     footerNotes = serializers.CharField(source="footer_notes", read_only=True)
+    billingAddress = serializers.JSONField(source="billing_address", read_only=True)
+    paymentMethods = serializers.JSONField(source="payment_methods", read_only=True)
 
     class Meta:
         model = TenantOrganization
@@ -250,6 +298,10 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
             "secondary",
             "footer_notes",
             "footerNotes",
+            "billing_address",
+            "billingAddress",
+            "payment_methods",
+            "paymentMethods",
             "locations_count",
             "cost_centers_count",
         )

@@ -1,6 +1,7 @@
 from django.urls import path
 
 from tenants.views import (
+    AdminDashboardActivityView,
     AdminClientDetailView,
     AdminClientsView,
     AdminOverviewView,
@@ -10,6 +11,9 @@ from tenants.views import (
     AdminSystemHealthView,
     AdminUserDetailView,
     AdminUsersView,
+    DashboardActivityEventsView,
+    PublicLandingStatsView,
+    PublicCompleteSubscriptionView,
     TenantAuditLogsView,
     TenantBillingRateDetailView,
     TenantBillingRatesView,
@@ -27,6 +31,8 @@ from tenants.views import (
 )
 
 urlpatterns = [
+    path("public/landing-stats", PublicLandingStatsView.as_view(), name="public_landing_stats"),
+    path("public/complete-subscription", PublicCompleteSubscriptionView.as_view(), name="public_complete_subscription"),
     path("tenant/overview", TenantOverviewView.as_view(), name="tenant_overview"),
     path("tenant/users", TenantUsersView.as_view(), name="tenant_users"),
     path("tenant/users/<int:user_id>", TenantUserDetailView.as_view(), name="tenant_user_detail"),
@@ -41,6 +47,7 @@ urlpatterns = [
     path("tenant/subscription", TenantSubscriptionView.as_view(), name="tenant_subscription"),
     path("tenant/settings", TenantSettingsView.as_view(), name="tenant_settings"),
     path("tenant/audit-logs", TenantAuditLogsView.as_view(), name="tenant_audit_logs"),
+    path("dashboard/activity", DashboardActivityEventsView.as_view(), name="dashboard_activity_events"),
     path("admin/overview", AdminOverviewView.as_view(), name="admin_overview"),
     path("admin/clients", AdminClientsView.as_view(), name="admin_clients"),
     path("admin/clients/<int:organization_id>", AdminClientDetailView.as_view(), name="admin_client_detail"),
@@ -49,5 +56,6 @@ urlpatterns = [
     path("admin/subscriptions", AdminSubscriptionsView.as_view(), name="admin_subscriptions"),
     path("admin/revenue", AdminRevenueView.as_view(), name="admin_revenue"),
     path("admin/system-health", AdminSystemHealthView.as_view(), name="admin_system_health"),
+    path("admin/dashboard-activity", AdminDashboardActivityView.as_view(), name="admin_dashboard_activity"),
     path("admin/settings", AdminSettingsView.as_view(), name="admin_settings"),
 ]

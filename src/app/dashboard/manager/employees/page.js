@@ -3,49 +3,40 @@
 import { useEffect, useMemo, useState } from "react";
 
 import DashboardFrame from "@/components/dashboard/DashboardFrame";
+import { apiFetch } from "@/lib/api";
 import { getManagerDashboardSlice, setManagerDashboardSlice } from "@/lib/managerDashboardStorage";
 
-const defaultEmployees = [
-  {
-    id: 1,
-    name: "Employee One",
-    email: "employee1@abhyaka.com",
-    department: "Operations",
-    role: "Employee",
-    status: "Active",
-    employeeCode: "EMP-001",
-    hourlyRate: 520,
-    biWeeklyPay: 41600,
-    monthlyPay: 90000,
-    annualPay: 1080000,
-  },
-  {
-    id: 2,
-    name: "Ananya Rao",
-    email: "ananya.rao@abhyaka.com",
-    department: "Engineering",
-    role: "Employee",
-    status: "Active",
-    employeeCode: "EMP-002",
-    hourlyRate: 610,
-    biWeeklyPay: 48800,
-    monthlyPay: 106000,
-    annualPay: 1272000,
-  },
-];
+const defaultEmployees = [];
 
 const emptyForm = {
   name: "",
   email: "",
   department: "",
   role: "Employee",
-  status: "Active",
+  status: "Invite Pending",
   employeeCode: "",
   hourlyRate: "",
   biWeeklyPay: "",
   monthlyPay: "",
   annualPay: "",
 };
+
+function normalizeEmployee(employee) {
+  return {
+    id: employee.id,
+    name: employee.name || employee.username || "",
+    email: employee.email || "",
+    department: employee.department || "General",
+    role: employee.role === "employee" ? "Employee" : employee.role || "Employee",
+    status: employee.invitation_pending ? "Invite Pending" : employee.status || "Active",
+    employeeCode: `EMP-${String(employee.id).padStart(3, "0")}`,
+    hourlyRate: 0,
+    biWeeklyPay: 0,
+    monthlyPay: 0,
+    annualPay: 0,
+    invitationUrl: employee.invitation_url || "",
+  };
+}
 
 const formatCurrency = (value) =>
   `Rs ${Number(value || 0).toLocaleString("en-IN")}`;
@@ -59,9 +50,7 @@ const rateOptions = [
 
 export default function ManagerEmployeesPage() {
   const [pendingCount] = useState(() => getManagerDashboardSlice("reportsPendingCount", 0));
-  const [employees, setEmployees] = useState(() =>
-    getManagerDashboardSlice("managerEmployees", defaultEmployees)
-  );
+  const [employees, setEmployees] = useState(defaultEmployees);
   const [rateSelections, setRateSelections] = useState(() =>
     getManagerDashboardSlice("managerEmployeeRateSelections", {})
   );
@@ -69,6 +58,24 @@ export default function ManagerEmployeesPage() {
   const [employeeForm, setEmployeeForm] = useState(emptyForm);
   const [errorMessage, setErrorMessage] = useState("");
   const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    apiFetch("/manager/employees")
+      .then((data) => {
+        if (!active) return;
+        setEmployees((data || []).map(normalizeEmployee));
+      })
+      .catch((error) => {
+        if (!active) return;
+        setErrorMessage(error.message || "Unable to load employees.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     setManagerDashboardSlice("managerEmployees", employees);
@@ -83,23 +90,14 @@ export default function ManagerEmployeesPage() {
     [employees]
   );
 
-  const handleAddEmployee = () => {
+  const handleAddEmployee = async () => {
     const name = employeeForm.name.trim();
     const email = employeeForm.email.trim();
     const department = employeeForm.department.trim();
     const employeeCode = employeeForm.employeeCode.trim();
-    const hourlyRate = Number(employeeForm.hourlyRate);
-    const biWeeklyPay = Number(employeeForm.biWeeklyPay);
-    const monthlyPay = Number(employeeForm.monthlyPay);
-    const annualPay = Number(employeeForm.annualPay);
 
     if (!name || !email || !department || !employeeCode) {
       setErrorMessage("Enter all employee details before saving.");
-      return;
-    }
-
-    if ([hourlyRate, biWeeklyPay, monthlyPay, annualPay].some((value) => Number.isNaN(value) || value <= 0)) {
-      setErrorMessage("Enter valid pay details for hourly, bi-weekly, monthly, and annual amounts.");
       return;
     }
 
@@ -112,28 +110,33 @@ export default function ManagerEmployeesPage() {
       return;
     }
 
-    const nextEmployees = [
-      {
-        id: Date.now(),
-        name,
-        email,
-        department,
-        role: employeeForm.role,
-        status: employeeForm.status,
-        employeeCode,
-        hourlyRate,
-        biWeeklyPay,
-        monthlyPay,
-        annualPay,
-      },
-      ...employees,
-    ];
+    try {
+      const savedEmployee = await apiFetch("/manager/employees", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          email,
+          department,
+        }),
+      });
 
-    setEmployees(nextEmployees);
-    setEmployeeForm(emptyForm);
-    setErrorMessage("");
-    setIsAddOpen(false);
-    setToast("Employee added successfully.");
+      const nextEmployee = {
+        ...normalizeEmployee(savedEmployee),
+        employeeCode,
+        hourlyRate: Number(employeeForm.hourlyRate) || 0,
+        biWeeklyPay: Number(employeeForm.biWeeklyPay) || 0,
+        monthlyPay: Number(employeeForm.monthlyPay) || 0,
+        annualPay: Number(employeeForm.annualPay) || 0,
+      };
+
+      setEmployees((current) => [nextEmployee, ...current]);
+      setEmployeeForm(emptyForm);
+      setErrorMessage("");
+      setIsAddOpen(false);
+      setToast(savedEmployee.invitation_url ? "Employee invited. Invite link generated." : "Employee invited by email.");
+    } catch (error) {
+      setErrorMessage(error.message || "Unable to invite employee.");
+    }
   };
 
   useEffect(() => {

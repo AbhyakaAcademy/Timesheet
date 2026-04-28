@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { getApiBaseUrl } from "@/lib/auth";
 import {
   Building2,
   Calendar,
@@ -10,6 +11,7 @@ import {
   Clock,
   CreditCard,
   Mail,
+  MapPin,
   Phone,
   Users
 } from "lucide-react";
@@ -220,6 +222,8 @@ function CardLogoStrip({ brands, activeBrand }) {
 
 export default function SubscriptionPage() {
   const router = useRouter();
+  const [submitError, setSubmitError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [billing, setBilling] = useState("annual");
   const [region, setRegion] = useState("IN");
   const [selectedPlan, setSelectedPlan] = useState("professional");
@@ -229,6 +233,12 @@ export default function SubscriptionPage() {
     fullName: "",
     email: "",
     phone: "",
+    addressLine1: "",
+    addressLine2: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "",
     paymentMethod: "Credit/Debit Card",
     cardholderName: "",
     cardNumber: "",
@@ -256,7 +266,8 @@ export default function SubscriptionPage() {
   const convertAmount = (value) => Math.round(value * regionMeta[region].multiplier);
   const formatAmount = (value) =>
     `${regionMeta[region].symbol}${value.toLocaleString(regionMeta[region].locale)}`;
-  const formatRange = (min, max) => `${formatAmount(min)}-${formatAmount(max)}`;
+  const formatRange = (min, max) =>
+    `${regionMeta[region].symbol}${min.toLocaleString(regionMeta[region].locale)}-${max.toLocaleString(regionMeta[region].locale)}`;
 
   const activePriceRange = activePlan.custom
     ? null
@@ -298,16 +309,71 @@ export default function SubscriptionPage() {
       ? `${formatRange(totalRange.min, totalRange.max)}/${billing === "annual" ? "year" : "month"}`
       : "the selected subscription amount";
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setTimeout(() => router.push("/dashboard"), 800);
+    setSubmitError("");
+    setIsSubmitting(true);
+
+    const invoiceAmount = activePlan.custom || !totalRange ? "" : String(totalRange.min);
+    const payload = {
+      ...form,
+      planName: activePlan.name,
+      billingCycle: billing === "annual" ? "Annual" : "Monthly",
+      billingPeriodLabel: billing === "annual" ? "Annual subscription period" : "Monthly subscription period",
+      region,
+      regionLabel: `${regionMeta[region].label} (${regionMeta[region].code})`,
+      unitPriceDisplay:
+        activePlan.custom || !activePriceRange
+          ? "Custom"
+          : `${formatRange(activePriceRange.min, activePriceRange.max)}/user`,
+      totalDisplay:
+        activePlan.custom
+          ? "Custom"
+          : totalRange
+            ? `${formatRange(totalRange.min, totalRange.max)}/${billing === "annual" ? "year" : "month"}`
+            : "Custom",
+      invoiceAmount,
+      cardLast4: form.cardNumber.replace(/\D/g, "").slice(-4),
+    };
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/public/complete-subscription`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.detail || "Subscription could not be completed.");
+      }
+      router.push("/dashboard");
+    } catch (error) {
+      setSubmitError(error.message || "Subscription could not be completed.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleChange = (key, value) => {
+    if (key === "paymentMethod") {
+      setForm((prev) => ({
+        ...prev,
+        paymentMethod: value,
+        rememberPayment: value === "Credit/Debit Card" ? true : prev.rememberPayment,
+      }));
+      return;
+    }
+
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleCheckedChange = (key, checked) => {
+    if (key === "rememberPayment" && isCardPayment && !checked) {
+      return;
+    }
+
     setForm((prev) => ({ ...prev, [key]: checked }));
   };
 
@@ -343,6 +409,13 @@ export default function SubscriptionPage() {
   const cardBrandUnavailable = detectedCardBrand && detectedCardBrand !== "Card type" && !paymentConfig.cardBrands.includes(detectedCardBrand);
   const cardBrand = detectedCardBrand || "";
   const routingLabel = region === "US" ? "Routing Number" : region === "UK" ? "Sort Code" : "IFSC Code";
+  const formattedAddress = [
+    form.addressLine1,
+    form.addressLine2,
+    [form.city, form.state].filter(Boolean).join(", "),
+    [form.postalCode, form.country].filter(Boolean).join(" "),
+  ].filter(Boolean);
+  const rememberPaymentChecked = isCardPayment ? true : form.rememberPayment;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -532,6 +605,70 @@ export default function SubscriptionPage() {
                   className="w-full border border-gray-300 rounded-lg pl-10 pr-3 py-2.5"
                   value={form.phone}
                   onChange={(e) => handleChange("phone", e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-5">
+            <div className="flex items-center gap-3 text-gray-900 text-lg mb-3">
+              <MapPin className="w-5 h-5 text-indigo-600" />
+              Billing Address
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-gray-700 mb-2">House Address <span className="text-red-600">*</span></label>
+                <input
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={form.addressLine1}
+                  placeholder="Street address, house or apartment number"
+                  required
+                  onChange={(e) => handleChange("addressLine1", e.target.value)}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-gray-700 mb-2">Address Line 2</label>
+                <input
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={form.addressLine2}
+                  placeholder="Apartment, suite, unit, building, floor"
+                  onChange={(e) => handleChange("addressLine2", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 mb-2">City <span className="text-red-600">*</span></label>
+                <input
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={form.city}
+                  required
+                  onChange={(e) => handleChange("city", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 mb-2">State / Province <span className="text-red-600">*</span></label>
+                <input
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={form.state}
+                  required
+                  onChange={(e) => handleChange("state", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 mb-2">Postal Code <span className="text-red-600">*</span></label>
+                <input
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={form.postalCode}
+                  required
+                  onChange={(e) => handleChange("postalCode", e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 mb-2">Country <span className="text-red-600">*</span></label>
+                <input
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={form.country}
+                  required
+                  onChange={(e) => handleChange("country", e.target.value)}
                 />
               </div>
             </div>
@@ -759,12 +896,13 @@ export default function SubscriptionPage() {
               <input
                 id="rememberPayment"
                 type="checkbox"
-                checked={form.rememberPayment}
+                checked={rememberPaymentChecked}
+                disabled={isCardPayment}
                 onChange={(e) => handleCheckedChange("rememberPayment", e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
               />
               <label htmlFor="rememberPayment" className="text-sm font-medium text-slate-700">
-                Remember this card for future use
+                {isCardPayment ? "Keep this renewal card on file while the subscription is active" : "Remember this payment method for future use"}
               </label>
               <div className="group relative">
                 <button
@@ -775,7 +913,7 @@ export default function SubscriptionPage() {
                   ?
                 </button>
                 <div className="pointer-events-none absolute bottom-7 left-1/2 z-20 hidden w-72 -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-950 px-4 py-3 text-xs leading-5 text-white shadow-xl group-hover:block">
-                  For security, Abhyaka will not store your actual card or payment details. A secure payment token from the payment provider is saved for future billing.
+                  For security, Abhyaka will not store your actual card details. A secure payment token is retained for renewals while the subscription is active.
                 </div>
               </div>
             </div>
@@ -795,6 +933,12 @@ export default function SubscriptionPage() {
               <div className="flex justify-between"><span>Billing Cycle</span><span>{billing === "annual" ? "Annual" : "Monthly"}</span></div>
               <div className="flex justify-between"><span>Region</span><span>{regionMeta[region].label}</span></div>
               <div className="flex justify-between"><span>Number of Users</span><span>{userCount}</span></div>
+              <div className="flex items-start justify-between gap-4">
+                <span>Billing Address</span>
+                <span className="max-w-[60%] text-right">
+                  {formattedAddress.length ? formattedAddress.join(", ") : "Add address"}
+                </span>
+              </div>
               {billing === "annual" && (
                 <>
                   <div className="flex justify-between text-emerald-600"><span>Discount (Annual)</span><span>-15%</span></div>
@@ -829,10 +973,12 @@ export default function SubscriptionPage() {
 
           <button
             type="submit"
-            className="w-full py-4 rounded-xl text-xl text-white bg-gradient-to-r from-indigo-600 to-purple-600"
+            disabled={isSubmitting}
+            className="w-full py-4 rounded-xl text-xl text-white bg-gradient-to-r from-indigo-600 to-purple-600 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            Complete Subscription
+            {isSubmitting ? "Completing Subscription..." : "Complete Subscription"}
           </button>
+          {submitError ? <p className="mt-3 text-sm text-rose-600">{submitError}</p> : null}
         </form>
       </div>
     </div>

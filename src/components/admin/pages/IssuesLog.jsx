@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { StatusBadge } from '../StatusBadge';
 import { TicketDetailDialog } from '../TicketDetailDialog';
 import { issuesData } from '@/data/admin/mockData';
+import { adminApi } from '@/lib/adminTenantApi';
 import { getSupportTickets, subscribeToSupportTickets, updateSupportTicket } from '@/lib/supportTickets';
 import { getAdminDashboardSlice, setAdminDashboardSlice } from '@/lib/adminDashboardStorage';
 
@@ -13,15 +14,39 @@ export function IssuesLog() {
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [submittedIssues, setSubmittedIssues] = useState(() => getSupportTickets());
   const [managedIssues, setManagedIssues] = useState(() => getAdminDashboardSlice('managedIssues', {}));
+  const [platformIssues, setPlatformIssues] = useState([]);
 
   useEffect(() => subscribeToSupportTickets(setSubmittedIssues), []);
+  useEffect(() => {
+    adminApi
+      .dashboardActivity()
+      .then((events) =>
+        setPlatformIssues(
+          events
+            .filter((event) => ['slow_request', 'client_error', 'request_error'].includes(event.event_type))
+            .map((event) => ({
+              id: `SYS-${event.id}`,
+              title: event.summary,
+              clientName: event.clientName,
+              priority: event.severity === 'critical' ? 'Critical' : event.severity === 'high' ? 'High' : 'Medium',
+              status: 'Open',
+              assignedTo: 'Platform Queue',
+              createdDate: event.timestamp,
+              dashboard: event.dashboard,
+              description: event.details || `${event.event_type} reported on ${event.path || event.dashboard}.`,
+              notes: [],
+            }))
+        )
+      )
+      .catch(() => setPlatformIssues([]));
+  }, []);
 
   const allIssues = useMemo(() => {
-    const sourceIssues = [...submittedIssues, ...issuesData];
+    const sourceIssues = [...platformIssues, ...submittedIssues, ...issuesData];
     return sourceIssues
       .map((issue) => ({ ...issue, ...(managedIssues[issue.id] || {}) }))
       .sort((a, b) => String(b.createdDate || '').localeCompare(String(a.createdDate || '')));
-  }, [managedIssues, submittedIssues]);
+  }, [managedIssues, platformIssues, submittedIssues]);
 
   const filteredIssues = allIssues.filter((issue) => {
     const matchesSearch =
@@ -66,7 +91,7 @@ export function IssuesLog() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold text-gray-900">Issues Log</h1>
-        <p className="mt-2 text-gray-600">Track and manage customer issues and support tickets</p>
+        <p className="mt-2 text-gray-600">Track dashboard issues, slow requests, client errors, and support tickets</p>
       </div>
 
       <div className="flex items-center gap-4">

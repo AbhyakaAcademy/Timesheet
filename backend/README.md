@@ -41,6 +41,13 @@ Copy-Item .env.example .env -Force
 .\.venv\Scripts\python manage.py runserver
 ```
 
+## Email verification setup
+- Signup uses a verification link sent to the email address entered on the signup form.
+- For real delivery, copy `.env.example` to `.env` and fill in `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, and `DEFAULT_FROM_EMAIL`.
+- `FRONTEND_BASE_URL` must point to the frontend origin that serves `/verify-email`.
+- For Gmail SMTP, use an App Password instead of your normal Gmail password.
+- In local `DEBUG=True` mode, if SMTP is not configured, the API returns the verification link in the response so development is not blocked.
+
 ## Demo users
 After `seed_demo_data`:
 - `employee1` / `Pass@12345`
@@ -57,6 +64,9 @@ After `seed_demo_data`:
 ### Auth/accounts
 - `GET /api/health/`
 - `POST /api/auth/login`
+- `POST /api/auth/signup`
+- `POST /api/auth/resend-verification`
+- `POST /api/auth/verify-email`
 - `POST /api/auth/token/`
 - `POST /api/auth/token/refresh/`
 - `GET /api/me/`

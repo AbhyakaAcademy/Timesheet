@@ -24,6 +24,8 @@ class TenantOrganization(models.Model):
     primary_color = models.CharField(max_length=20, default="#4F46E5")
     secondary_color = models.CharField(max_length=20, default="#9333EA")
     footer_notes = models.TextField(blank=True)
+    billing_address = models.JSONField(default=dict, blank=True)
+    payment_methods = models.JSONField(default=list, blank=True)
     locations_count = models.PositiveIntegerField(default=0)
     cost_centers_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -152,6 +154,38 @@ class TenantAuditLog(models.Model):
     action = models.CharField(max_length=140)
     resource = models.CharField(max_length=140)
     details = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+
+
+class DashboardActivityLog(models.Model):
+    organization = models.ForeignKey(
+        TenantOrganization,
+        on_delete=models.CASCADE,
+        related_name="dashboard_activity_logs",
+        null=True,
+        blank=True,
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dashboard_activity_logs",
+    )
+    actor_name = models.CharField(max_length=150, blank=True)
+    actor_email = models.EmailField(blank=True)
+    actor_role = models.CharField(max_length=40, blank=True)
+    dashboard = models.CharField(max_length=40)
+    path = models.CharField(max_length=255, blank=True)
+    event_type = models.CharField(max_length=40)
+    severity = models.CharField(max_length=20, default="info")
+    summary = models.CharField(max_length=180)
+    details = models.TextField(blank=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

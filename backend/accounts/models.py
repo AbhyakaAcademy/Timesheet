@@ -56,3 +56,48 @@ class TenantSignupRequest(models.Model):
 
     def __str__(self):
         return f"{self.email} -> {self.organization_name}"
+
+
+class UserInvitation(models.Model):
+    user = models.OneToOneField(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        related_name="invitation",
+    )
+    invited_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sent_invitations",
+    )
+    invitation_token_hash = models.CharField(max_length=64, unique=True)
+    token_expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.user.email} invite"
+
+
+class PasswordResetRequest(models.Model):
+    user = models.OneToOneField(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        related_name="password_reset_request",
+    )
+    reset_token_hash = models.CharField(max_length=64, unique=True)
+    token_expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.user.email} password reset"

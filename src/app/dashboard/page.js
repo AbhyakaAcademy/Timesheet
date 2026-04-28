@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Clock, Download, LogOut, Pencil, Settings, Trash2 } from "lucide-react";
+import { Bell, CheckCircle2, Clock, CreditCard, Download, LogOut, MapPin, Pencil, Settings, Trash2 } from "lucide-react";
 import jsPDF from "jspdf";
 import RouteGuard from "@/components/auth/RouteGuard";
 import { clearSession } from "@/lib/auth";
@@ -85,6 +85,128 @@ const subscriptionRegionMeta = {
   UK: { label: "United Kingdom", symbol: "GBP ", code: "GBP", locale: "en-GB", multiplier: 0.0095 },
 };
 
+const accountCardBrandsByCountry = {
+  "United States": ["Visa", "Mastercard", "American Express", "Discover"],
+  India: ["Visa", "RuPay"],
+  "United Kingdom": ["Visa", "Mastercard", "Maestro"],
+};
+
+function getCardBrand(value) {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("4")) return "Visa";
+  if (digits.startsWith("34") || digits.startsWith("37")) return "American Express";
+  if (/^(5[1-5]|2[2-7])/.test(digits)) return "Mastercard";
+  if (digits.startsWith("6")) return "Discover";
+  if (digits.startsWith("8")) return "RuPay";
+  if (/^(50|56|57|58|6[0-9])/.test(digits)) return "Maestro";
+  return "Card type";
+}
+
+function formatCardNumber(value) {
+  const digits = value.replace(/\D/g, "").slice(0, 19);
+  const groups = digits.match(/.{1,4}/g);
+  return groups ? groups.join(" ") : "";
+}
+
+function formatExpiry(value) {
+  const digits = value.replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)} / ${digits.slice(2)}`;
+}
+
+function CardLogo({ name, active }) {
+  const baseClass = "inline-flex h-7 w-11 items-center justify-center overflow-hidden rounded shadow-sm ring-1 ring-slate-200 transition";
+  const inactiveClass = active === false ? "opacity-40 grayscale" : "";
+
+  if (name === "Mastercard") {
+    return (
+      <span className={`${baseClass} bg-[#111827] ${inactiveClass}`} aria-label="Mastercard">
+        <svg viewBox="0 0 44 28" className="h-full w-full" role="img" aria-hidden="true">
+          <circle cx="18" cy="14" r="8.5" fill="#eb001b" />
+          <circle cx="26" cy="14" r="8.5" fill="#f79e1b" />
+          <path d="M22 7.5a8.5 8.5 0 0 1 0 13 8.5 8.5 0 0 1 0-13Z" fill="#ff5f00" />
+        </svg>
+      </span>
+    );
+  }
+
+  if (name === "Discover") {
+    return (
+      <span className={`${baseClass} bg-white ${inactiveClass}`} aria-label="Discover">
+        <svg viewBox="0 0 44 28" className="h-full w-full" role="img" aria-hidden="true">
+          <rect width="44" height="28" rx="3" fill="#ffffff" />
+          <path d="M28 4h12v20H28a10 10 0 0 0 0-20Z" fill="#f58220" opacity="0.95" />
+          <text x="5" y="16.5" fill="#111827" fontSize="6.2" fontWeight="800" fontFamily="Arial, sans-serif">DISC</text>
+          <text x="23" y="16.5" fill="#111827" fontSize="6.2" fontWeight="800" fontFamily="Arial, sans-serif">VER</text>
+        </svg>
+      </span>
+    );
+  }
+
+  if (name === "American Express") {
+    return (
+      <span className={`${baseClass} bg-[#2e9fd8] ${inactiveClass}`} aria-label="American Express">
+        <svg viewBox="0 0 44 28" className="h-full w-full" role="img" aria-hidden="true">
+          <rect width="44" height="28" rx="3" fill="#2e9fd8" />
+          <text x="22" y="12" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900" fontFamily="Arial Black, Arial, sans-serif">AM</text>
+          <text x="22" y="21" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="900" fontFamily="Arial Black, Arial, sans-serif">EX</text>
+        </svg>
+      </span>
+    );
+  }
+
+  if (name === "RuPay") {
+    return (
+      <span className={`${baseClass} bg-white ${inactiveClass}`} aria-label="RuPay">
+        <svg viewBox="0 0 44 28" className="h-full w-full" role="img" aria-hidden="true">
+          <rect width="44" height="28" rx="3" fill="#ffffff" />
+          <text x="18" y="17" textAnchor="middle" fill="#1f5aa6" fontSize="9" fontWeight="900" fontFamily="Arial Black, Arial, sans-serif">Ru</text>
+          <text x="30" y="17" textAnchor="middle" fill="#0f9d58" fontSize="9" fontWeight="900" fontFamily="Arial Black, Arial, sans-serif">Pay</text>
+          <path d="M34 7l5 7-5 7h3l5-7-5-7h-3Z" fill="#f58220" />
+        </svg>
+      </span>
+    );
+  }
+
+  if (name === "Maestro") {
+    return (
+      <span className={`${baseClass} bg-white ${inactiveClass}`} aria-label="Maestro">
+        <svg viewBox="0 0 44 28" className="h-full w-full" role="img" aria-hidden="true">
+          <rect width="44" height="28" rx="3" fill="#ffffff" />
+          <circle cx="18" cy="12" r="7.5" fill="#009ddd" />
+          <circle cx="26" cy="12" r="7.5" fill="#ed1c24" />
+          <path d="M22 6.5a7.5 7.5 0 0 1 0 11 7.5 7.5 0 0 1 0-11Z" fill="#6c6bff" opacity="0.85" />
+          <text x="22" y="23" textAnchor="middle" fill="#111827" fontSize="6" fontWeight="800" fontFamily="Arial, sans-serif">maestro</text>
+        </svg>
+      </span>
+    );
+  }
+
+  return (
+    <span className={`${baseClass} bg-[#064f96] ${inactiveClass}`} aria-label="Visa">
+      <svg viewBox="0 0 44 28" className="h-full w-full" role="img" aria-hidden="true">
+        <rect width="44" height="28" rx="3" fill="#064f96" />
+        <text x="22" y="18" textAnchor="middle" fill="#ffffff" fontSize="12" fontStyle="italic" fontWeight="900" fontFamily="Arial Black, Arial, sans-serif">VISA</text>
+      </svg>
+    </span>
+  );
+}
+
+function CardLogoStrip({ brands, activeBrand }) {
+  return (
+    <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
+      {brands.map((brand) => (
+        <CardLogo
+          key={brand}
+          name={brand}
+          active={!activeBrand || activeBrand === "Card type" || activeBrand === brand}
+        />
+      ))}
+    </div>
+  );
+}
+
 const subscriptionPlans = [
   {
     key: "starter",
@@ -127,7 +249,7 @@ const subscriptionPlans = [
   },
 ];
 
-const settingTabs = ["General Settings", "Billing Rates", "Overtime Rules", "Branding"];
+const settingTabs = ["General Settings", "Accounts", "Billing Rates", "Overtime Rules", "Branding"];
 
 const initialBillingRates = [
   { id: 1, role: "Software Engineer", project: "All Projects", rate: "INR 2,500/hour", type: "Hourly" },
@@ -153,6 +275,35 @@ const defaultSettings = {
   rounding: "15 minutes",
   maxHours: "12 hours",
   dateFormat: "DD-MM-YYYY (Indian format)",
+  billingAddress: {
+    company: "Abhyaka Customer Billing",
+    line1: "14 Lake View Road",
+    line2: "Indiranagar",
+    city: "Bengaluru",
+    state: "Karnataka",
+    postalCode: "560038",
+    country: "India",
+  },
+  paymentMethods: [
+    {
+      id: "card-1",
+      brand: "Visa",
+      last4: "4242",
+      expiry: "08/28",
+      holder: "Sarah Johnson",
+      billingAddress: "14 Lake View Road, Indiranagar, Bengaluru, Karnataka 560038, India",
+      isDefault: true,
+    },
+    {
+      id: "card-2",
+      brand: "Mastercard",
+      last4: "1881",
+      expiry: "11/27",
+      holder: "Sarah Johnson",
+      billingAddress: "14 Lake View Road, Indiranagar, Bengaluru, Karnataka 560038, India",
+      isDefault: false,
+    },
+  ],
 };
 
 const fallbackAuditLog = {
@@ -165,9 +316,9 @@ const fallbackAuditLog = {
 };
 
 const defaultProfile = {
-  name: "Tenant Profile",
+  name: "Client Profile",
   email: "admin@abhyaka.com",
-  role: "Tenant Admin",
+  role: "Client Admin",
   phone: "",
 };
 
@@ -260,8 +411,53 @@ function normalizeOvertimeRule(rule) {
   };
 }
 
+function normalizeBillingAddressValue(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultSettings.billingAddress;
+  }
+
+  const nextAddress = {
+    ...defaultSettings.billingAddress,
+    ...value,
+  };
+
+  const hasMeaningfulAddress = Object.values(nextAddress).some((item) => String(item || "").trim());
+  return hasMeaningfulAddress ? nextAddress : defaultSettings.billingAddress;
+}
+
+function normalizePaymentMethodsValue(value) {
+  if (!Array.isArray(value) || !value.length) {
+    return defaultSettings.paymentMethods;
+  }
+
+  const nextCards = value
+    .filter((card) => card && typeof card === "object")
+    .map((card, index) => ({
+      id: card.id || `card-fallback-${index + 1}`,
+      brand: card.brand || "Card",
+      last4: String(card.last4 || "").slice(-4) || "0000",
+      expiry: card.expiry || "MM/YY",
+      holder: card.holder || "Client Admin",
+      billingAddress: card.billingAddress || defaultSettings.paymentMethods[0].billingAddress,
+      isDefault: Boolean(card.isDefault),
+    }));
+
+  if (!nextCards.length) {
+    return defaultSettings.paymentMethods;
+  }
+
+  if (!nextCards.some((card) => card.isDefault)) {
+    nextCards[0] = { ...nextCards[0], isDefault: true };
+  }
+
+  return nextCards;
+}
+
 function normalizeSettings(payload) {
   const organization = payload?.organization || payload || {};
+  const normalizedBillingAddress = normalizeBillingAddressValue(organization.billingAddress || organization.billing_address);
+  const normalizedPaymentMethods = normalizePaymentMethodsValue(organization.paymentMethods || organization.payment_methods);
+
   return {
     tenantName: organization.tenantName || organization.name || defaultSettings.tenantName,
     timeZone: organization.timeZone || organization.timezone || defaultSettings.timeZone,
@@ -271,6 +467,8 @@ function normalizeSettings(payload) {
     rounding: organization.rounding || defaultSettings.rounding,
     maxHours: organization.maxHours || `${organization.max_hours || 12} hours`,
     dateFormat: organization.dateFormat || organization.date_format || defaultSettings.dateFormat,
+    billingAddress: normalizedBillingAddress,
+    paymentMethods: normalizedPaymentMethods,
   };
 }
 
@@ -284,6 +482,15 @@ function normalizeSubscription(subscription) {
   return {
     plan: matchedPlan,
     billing: String(billingCycle).toLowerCase().startsWith("month") ? "monthly" : "annual",
+  };
+}
+
+function buildFallbackOverview() {
+  return {
+    totalUsers: initialUsers.length,
+    activeDepartments: initialDepartments.length,
+    activePolicies: initialPolicies.filter((policy) => policy.enabled).length,
+    usagePercent: 31,
   };
 }
 
@@ -380,12 +587,23 @@ export default function DashboardPage() {
         if (!isMounted) return;
 
         const normalizedSubscription = normalizeSubscription(subscriptionData);
-        setOverview(overviewData);
-        setUsers((usersData || []).map(normalizeUser));
-        setDepartments((departmentsData || []).map(normalizeDepartment));
-        setPolicies((policiesData || []).map(normalizePolicy));
-        setBillingRates((billingRatesData || []).map(normalizeBillingRate));
-        setOvertimeRules((overtimeRulesData || []).map(normalizeOvertimeRule));
+        const nextUsers = usersData?.length ? usersData.map(normalizeUser) : initialUsers;
+        const nextDepartments = departmentsData?.length ? departmentsData.map(normalizeDepartment) : initialDepartments;
+        const nextPolicies = policiesData?.length ? policiesData.map(normalizePolicy) : initialPolicies;
+        const nextBillingRates = billingRatesData?.length ? billingRatesData.map(normalizeBillingRate) : initialBillingRates;
+        const nextOvertimeRules = overtimeRulesData?.length ? overtimeRulesData.map(normalizeOvertimeRule) : initialOvertimeRules;
+        const hasOverviewData =
+          overviewData &&
+          [overviewData.totalUsers, overviewData.activeDepartments, overviewData.activePolicies, overviewData.usagePercent].some(
+            (value) => value !== undefined && value !== null
+          );
+
+        setOverview(hasOverviewData ? overviewData : buildFallbackOverview());
+        setUsers(nextUsers);
+        setDepartments(nextDepartments);
+        setPolicies(nextPolicies);
+        setBillingRates(nextBillingRates);
+        setOvertimeRules(nextOvertimeRules);
         setSubscriptionPlan(normalizedSubscription.plan);
         setSubscriptionBilling(normalizedSubscription.billing);
         setSettings(normalizeSettings(settingsData));
@@ -393,7 +611,7 @@ export default function DashboardPage() {
         setAuditLogs(auditLogsData?.length ? auditLogsData : [fallbackAuditLog]);
       } catch (error) {
         if (isMounted) {
-          showToast(error.message || "Tenant data could not load");
+          showToast(error.message || "Client data could not load");
         }
       } finally {
         if (isMounted) {
@@ -442,7 +660,11 @@ export default function DashboardPage() {
         modal.item ? current.map((user) => (user.id === modal.item.id ? nextUser : user)) : [nextUser, ...current]
       );
       setModal(null);
-      showToast(modal.item ? "User updated" : "User added");
+      if (modal.item) {
+        showToast("User updated");
+      } else {
+        showToast(savedUser.invitation_url ? "User invited. Invite link generated." : "User invited by email");
+      }
     } catch (error) {
       showToast(error.message || "User could not be saved");
     }
@@ -563,10 +785,17 @@ export default function DashboardPage() {
       const savedSettings = await tenantApi.updateSettings({ adminProfile: nextProfile });
       setProfile(normalizeProfile(savedSettings?.adminProfile || nextProfile));
       setModal(null);
-      showToast("Tenant profile updated");
+      showToast("Client profile updated");
     } catch (error) {
-      showToast(error.message || "Tenant profile could not be updated");
+      showToast(error.message || "Client profile could not be updated");
     }
+  };
+
+  const saveAccountSettings = async (accountSettings) => {
+    const savedSettings = await tenantApi.updateSettings(accountSettings);
+    const normalizedSettings = normalizeSettings(savedSettings);
+    setSettings(normalizedSettings);
+    return normalizedSettings;
   };
 
   const saveBillingRate = async (event) => {
@@ -715,7 +944,7 @@ export default function DashboardPage() {
           <div className="border-t border-slate-200 p-4">
             <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-violet-700 text-sm font-bold text-white">
-                {profile.name.charAt(0).toUpperCase()}
+                C
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-900">{profile.name}</p>
@@ -756,7 +985,7 @@ export default function DashboardPage() {
           <div className="px-9 py-7">
           {loading ? (
             <div className="mb-5 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-800">
-              Loading tenant data...
+              Loading client data...
             </div>
           ) : null}
           {active === "Dashboard" ? <DashboardHome overview={overview} /> : null}
@@ -795,7 +1024,10 @@ export default function DashboardPage() {
               onTabChange={setSettingsTab}
               settings={settings}
               onSave={saveSettings}
+              subscriptionPlan={subscriptionPlan}
+              subscriptionBilling={subscriptionBilling}
               onAction={showToast}
+              saveAccountSettings={saveAccountSettings}
               billingRates={billingRates}
               onAddBillingRate={() => setModal({ type: "billingRate" })}
               onEditBillingRate={(rate) => setModal({ type: "billingRate", item: rate })}
@@ -865,13 +1097,13 @@ function TenantHeader({
             type="button"
             onClick={onOpenProfile}
             className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-base font-semibold text-white shadow-sm transition hover:bg-blue-700"
-            aria-label="Open tenant profile"
-            title="Tenant Profile"
+            aria-label="Open client profile"
+            title="Client Profile"
           >
-            {profile.name.charAt(0).toUpperCase()}
+            C
           </button>
           <button type="button" onClick={onOpenProfile} className="text-left text-sm font-medium text-gray-600 hover:text-gray-900">
-            Tenant Profile
+            Client Profile
           </button>
         </div>
 
@@ -1158,15 +1390,19 @@ function formatSubscriptionRange(plan, region, billing) {
     return billing === "annual" ? "Custom per year" : "Custom per month";
   }
 
+  const meta = subscriptionRegionMeta[region];
   const min = billing === "annual" ? plan.annualMin : plan.monthlyMin;
   const max = billing === "annual" ? plan.annualMax : plan.monthlyMax;
-  return `${formatSubscriptionAmount(convertSubscriptionAmount(min, region), region)}-${formatSubscriptionAmount(convertSubscriptionAmount(max, region), region)}`;
+  const formattedMin = convertSubscriptionAmount(min, region).toLocaleString(meta.locale);
+  const formattedMax = convertSubscriptionAmount(max, region).toLocaleString(meta.locale);
+  return `${meta.symbol}${formattedMin}-${formattedMax}`;
 }
 
 function BillingPage({ currentPlan, region, billing, onManage, onAction }) {
   const usagePercent = currentPlan.name === "Starter" ? "42%" : currentPlan.name === "Professional" ? "38%" : "31%";
   const suffix = currentPlan.custom ? "" : billing === "annual" ? "/user/yr" : "/user/mo";
   const displayPrice = formatSubscriptionRange(currentPlan, region, billing);
+  const nextChargeDate = "May 27, 2026";
 
   const downloadInvoicePdf = (invoice) => {
     const doc = new jsPDF();
@@ -1178,7 +1414,7 @@ function BillingPage({ currentPlan, region, billing, onManage, onAction }) {
     doc.setFontSize(20);
     doc.text("Abhyaka Invoice", 14, 20);
     doc.setFontSize(10);
-    doc.text("Tenant subscription billing summary", 14, 28);
+    doc.text("Client subscription billing summary", 14, 28);
 
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(12);
@@ -1230,9 +1466,9 @@ function BillingPage({ currentPlan, region, billing, onManage, onAction }) {
         </div>
 
         <div className="mt-7 grid gap-8 md:grid-cols-3">
-          <InfoBlock label="Plan Type" value="Annual" large />
+          <InfoBlock label="Plan Type" value={billing === "annual" ? "Annual" : "Monthly"} large />
           <InfoBlock label="User License" value={currentPlan.seats} large />
-          <InfoBlock label="Next Billing Date" value="Mar 1, 2026" large />
+          <InfoBlock label="Next Billing Date" value={nextChargeDate} large />
         </div>
 
         <div className="mt-8">
@@ -1287,13 +1523,25 @@ function BillingPage({ currentPlan, region, billing, onManage, onAction }) {
   );
 }
 
+function DetailRow({ label, value }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
 function AuditLogsPage({ logs }) {
-  const [selectedLogId, setSelectedLogId] = useState(null);
+  const [selectedLogId, setSelectedLogId] = useState("default");
   const availableLogs = logs?.length ? logs : [fallbackAuditLog];
-  const selectedLog = availableLogs.find((log) => log.id === selectedLogId) || availableLogs[0];
+  const selectedLog =
+    selectedLogId === null
+      ? null
+      : availableLogs.find((log) => (log.id || `${log.timestamp}-${log.resource}`) === selectedLogId) || availableLogs[0];
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
+    <div className={`grid gap-6 ${selectedLog ? "xl:grid-cols-[360px_1fr]" : "max-w-[360px]"}`}>
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold text-slate-950">Audit Logs</h2>
         <div className="mt-4 space-y-3">
@@ -1313,10 +1561,16 @@ function AuditLogsPage({ logs }) {
         </div>
       </section>
 
+      {selectedLog ? (
       <section className="max-w-[680px] rounded-xl border border-slate-200 bg-white px-7 py-6 shadow-sm">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-bold tracking-tight text-slate-950">Audit Log Details</h2>
-          <button type="button" className="text-2xl leading-none text-slate-500 hover:text-slate-800" aria-label="Close audit log details">
+          <button
+            type="button"
+            onClick={() => setSelectedLogId(null)}
+            className="text-2xl leading-none text-slate-500 hover:text-slate-800"
+            aria-label="Close audit log details"
+          >
             x
           </button>
         </div>
@@ -1352,6 +1606,7 @@ function AuditLogsPage({ logs }) {
           Close
         </button>
       </section>
+      ) : null}
     </div>
   );
 }
@@ -1370,7 +1625,10 @@ function SettingsPage({
   onTabChange,
   settings,
   onSave,
+  subscriptionPlan,
+  subscriptionBilling,
   onAction,
+  saveAccountSettings,
   billingRates,
   onAddBillingRate,
   onEditBillingRate,
@@ -1383,7 +1641,7 @@ function SettingsPage({
 }) {
   return (
     <>
-      <PageHeader title="Tenant Settings" subtitle="Configure organization-wide settings and preferences" />
+      <PageHeader title="Client Settings" subtitle="Configure organization-wide settings and preferences" />
 
       <div className="overflow-hidden rounded-xl border border-slate-300 bg-white">
         <div className="flex">
@@ -1404,6 +1662,7 @@ function SettingsPage({
 
       <section className="mt-7 rounded-xl border border-slate-300 bg-white p-8">
         {activeTab === "General Settings" ? <GeneralSettings settings={settings} onSave={onSave} /> : null}
+        {activeTab === "Accounts" ? <AccountsSettings settings={settings} currentPlan={subscriptionPlan} billing={subscriptionBilling} onAction={onAction} onSave={saveAccountSettings} /> : null}
         {activeTab === "Billing Rates" ? (
           <BillingRatesSettings
             rates={billingRates}
@@ -1424,6 +1683,384 @@ function SettingsPage({
         {activeTab === "Branding" ? <SimpleSettings title="Branding" onAction={onAction} /> : null}
       </section>
     </>
+  );
+}
+
+function AccountsSettings({ settings, currentPlan, billing, onAction, onSave }) {
+  const [showAddPaymentForm, setShowAddPaymentForm] = useState(false);
+  const [savedCards, setSavedCards] = useState(null);
+  const paymentCardSequenceRef = useRef(1);
+  const [paymentForm, setPaymentForm] = useState({
+    cardNumber: "",
+    expiry: "",
+    cvc: "",
+    country: "United States",
+    zipCode: "",
+  });
+  const currentPaymentMethods = normalizePaymentMethodsValue(
+    Array.isArray(savedCards) ? savedCards : settings?.paymentMethods
+  );
+  const defaultCard = currentPaymentMethods.find((card) => card.isDefault) || currentPaymentMethods[0];
+  const currentSubscription = {
+    plan: `${currentPlan?.name || "Professional"} Plan`,
+    status: "Active",
+    billingCycle: billing === "monthly" ? "Monthly" : "Annual",
+    currentPeriodEnds: "May 26, 2026",
+    renewsOn: "May 27, 2026",
+    amount: billing === "monthly" ? "Current active monthly subscription" : "Current active annual subscription",
+  };
+  const billingAddress = normalizeBillingAddressValue(settings?.billingAddress);
+  const supportedCardBrands = accountCardBrandsByCountry[paymentForm.country] || accountCardBrandsByCountry["United States"];
+  const detectedCardBrand = getCardBrand(paymentForm.cardNumber);
+  const cardBrandUnavailable =
+    detectedCardBrand &&
+    detectedCardBrand !== "Card type" &&
+    !supportedCardBrands.includes(detectedCardBrand);
+
+  const updatePaymentForm = (key, value) => {
+    if (key === "cardNumber") {
+      setPaymentForm((prev) => ({ ...prev, cardNumber: formatCardNumber(value) }));
+      return;
+    }
+
+    if (key === "expiry") {
+      setPaymentForm((prev) => ({ ...prev, expiry: formatExpiry(value) }));
+      return;
+    }
+
+    if (key === "cvc") {
+      setPaymentForm((prev) => ({ ...prev, cvc: value.replace(/\D/g, "").slice(0, 4) }));
+      return;
+    }
+
+    if (key === "zipCode") {
+      setPaymentForm((prev) => ({ ...prev, zipCode: value.replace(/[^\dA-Za-z -]/g, "").slice(0, 12) }));
+      return;
+    }
+
+    setPaymentForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const resetPaymentForm = () => {
+    setPaymentForm({
+      cardNumber: "",
+      expiry: "",
+      cvc: "",
+      country: "United States",
+      zipCode: "",
+    });
+  };
+
+  const persistPaymentMethods = async (nextCards, successMessage) => {
+    try {
+      const normalizedSettings = await onSave({ paymentMethods: nextCards });
+      setSavedCards(normalizedSettings.paymentMethods);
+      if (successMessage) {
+        onAction(successMessage);
+      }
+    } catch (error) {
+      onAction(error.message || "Payment methods could not be saved");
+    }
+  };
+
+  const submitPaymentMethod = (event) => {
+    event.preventDefault();
+    const digits = paymentForm.cardNumber.replace(/\D/g, "");
+    if (digits.length < 12 || paymentForm.expiry.length < 7 || paymentForm.cvc.length < 3 || !paymentForm.zipCode) {
+      onAction("Complete all payment method fields");
+      return;
+    }
+    if (cardBrandUnavailable) {
+      onAction(`Use a supported card for ${paymentForm.country}`);
+      return;
+    }
+
+    const brand = detectedCardBrand && detectedCardBrand !== "Card type" ? detectedCardBrand : "Card";
+
+    const nextCards = [
+      ...currentPaymentMethods,
+      {
+        id: `card-${paymentCardSequenceRef.current++}`,
+        brand,
+        last4: digits.slice(-4),
+        expiry: paymentForm.expiry,
+        holder: "Client Admin",
+        billingAddress: `${paymentForm.country} - ${paymentForm.zipCode}`,
+        isDefault: false,
+      },
+    ];
+    setSavedCards(nextCards);
+    persistPaymentMethods(nextCards, "Payment method added");
+    resetPaymentForm();
+    setShowAddPaymentForm(false);
+  };
+
+  const makeDefaultCard = (cardId) => {
+    const nextCards = currentPaymentMethods.map((card) => ({
+      ...card,
+      isDefault: card.id === cardId,
+    }));
+    setSavedCards(nextCards);
+    persistPaymentMethods(nextCards, "Default payment method updated");
+  };
+
+  const removeCard = (cardId) => {
+    if (currentPaymentMethods.length === 1) {
+      onAction("Add another payment method before deleting the only card on file");
+      return;
+    }
+
+    const nextCards = currentPaymentMethods.filter((card) => card.id !== cardId);
+    if (!nextCards.some((card) => card.isDefault) && nextCards[0]) {
+      nextCards[0] = { ...nextCards[0], isDefault: true };
+    }
+    setSavedCards(nextCards);
+    persistPaymentMethods(nextCards, "Payment method removed");
+  };
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h3 className="text-2xl font-bold">Accounts</h3>
+        <p className="mt-3 text-base text-slate-600">See your subscription, payment method, default card, and billing address.</p>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="space-y-6">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Current Subscription</p>
+                <h4 className="mt-2 text-lg font-bold text-slate-950">{currentSubscription.plan}</h4>
+                <p className="mt-1 text-sm text-slate-600">Your current paid plan and renewal details.</p>
+              </div>
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                {currentSubscription.status}
+              </span>
+            </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <DetailRow label="Billing cycle" value={currentSubscription.billingCycle} />
+              <DetailRow label="Subscription amount" value={currentSubscription.amount} />
+              <DetailRow label="Current period ends" value={currentSubscription.currentPeriodEnds} />
+              <DetailRow label="Auto renews on" value={currentSubscription.renewsOn} />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <CreditCard className="h-5 w-5 text-violet-700" />
+                <h4 className="text-lg font-bold text-slate-950">Payment Methods</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddPaymentForm((prev) => !prev)}
+                className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-100"
+              >
+                + Add Payment Method
+              </button>
+            </div>
+            {showAddPaymentForm ? (
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h5 className="text-lg font-semibold text-slate-950">Add payment method</h5>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetPaymentForm();
+                      setShowAddPaymentForm(false);
+                    }}
+                    className="text-sm font-medium text-slate-500 transition hover:text-slate-800"
+                  >
+                    Close
+                  </button>
+                </div>
+                <form onSubmit={submitPaymentMethod} className="space-y-4">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">Card number</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={paymentForm.cardNumber}
+                        inputMode="numeric"
+                        autoComplete="cc-number"
+                        onChange={(event) => updatePaymentForm("cardNumber", event.target.value)}
+                        placeholder="1234 1234 1234 1234"
+                        className="w-full rounded-xl border border-slate-300 px-4 py-3 pr-40 text-lg text-slate-950 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+                      />
+                      <CardLogoStrip brands={supportedCardBrands} activeBrand={detectedCardBrand} />
+                    </div>
+                    {cardBrandUnavailable ? (
+                      <p className="mt-2 text-sm text-rose-600">
+                        {detectedCardBrand} is not available for {paymentForm.country}. Use {supportedCardBrands.join(", ")}.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Expiration date</label>
+                      <input
+                        type="text"
+                        value={paymentForm.expiry}
+                        inputMode="numeric"
+                        autoComplete="cc-exp"
+                        maxLength={7}
+                        onChange={(event) => updatePaymentForm("expiry", event.target.value)}
+                        placeholder="MM / YY"
+                        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg text-slate-950 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Security code</label>
+                      <div className="relative">
+                        <input
+                          type="password"
+                          value={paymentForm.cvc}
+                          inputMode="numeric"
+                          autoComplete="cc-csc"
+                          maxLength={4}
+                          onChange={(event) => updatePaymentForm("cvc", event.target.value)}
+                          placeholder="CVC"
+                          className="w-full rounded-xl border border-slate-300 px-4 py-3 pr-16 text-lg text-slate-950 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+                        />
+                        <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 text-slate-500">
+                          <CreditCard className="h-5 w-5" />
+                          <span className="text-xs font-bold">123</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Country</label>
+                      <select
+                        value={paymentForm.country}
+                        onChange={(event) => updatePaymentForm("country", event.target.value)}
+                        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-base text-slate-950 focus:border-slate-400 focus:outline-none"
+                      >
+                        <option>United States</option>
+                        <option>India</option>
+                        <option>United Kingdom</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">ZIP code</label>
+                      <input
+                        type="text"
+                        value={paymentForm.zipCode}
+                        onChange={(event) => updatePaymentForm("zipCode", event.target.value)}
+                        placeholder="12345"
+                        className="w-full rounded-xl border border-slate-300 px-4 py-3 text-lg text-slate-950 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-slate-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetPaymentForm();
+                        setShowAddPaymentForm(false);
+                      }}
+                      className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : null}
+            <div className="mt-5 space-y-4">
+              {currentPaymentMethods.map((card) => (
+                <div key={card.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-base font-semibold text-slate-950">
+                          {card.brand} ending in {card.last4}
+                        </p>
+                        {card.isDefault ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Default
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">Expires {card.expiry} · {card.holder}</p>
+                      <p className="mt-3 text-sm text-slate-500">{card.billingAddress}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      {!card.isDefault ? (
+                        <button
+                          type="button"
+                          onClick={() => makeDefaultCard(card.id)}
+                          className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-100"
+                        >
+                          Make Default
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => removeCard(card.id)}
+                        disabled={currentPaymentMethods.length === 1}
+                        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="flex items-center gap-3">
+              <MapPin className="h-5 w-5 text-violet-700" />
+              <h4 className="text-lg font-bold text-slate-950">Billing Address</h4>
+            </div>
+            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-950">{billingAddress.company || "Client Billing"}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {billingAddress.line1 || "-"}
+                {billingAddress.line2 ? <><br />{billingAddress.line2}</> : null}
+                {(billingAddress.city || billingAddress.state || billingAddress.postalCode) ? (
+                  <>
+                    <br />
+                    {[billingAddress.city, billingAddress.state, billingAddress.postalCode].filter(Boolean).join(", ")}
+                  </>
+                ) : null}
+                {billingAddress.country ? <><br />{billingAddress.country}</> : null}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+            <h4 className="text-lg font-bold text-slate-950">Default Payment Method</h4>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              The default card is used for subscription renewals. To delete the current default card, first add another card and make that new card the default payment method.
+            </p>
+            {defaultCard ? (
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <p className="text-sm font-semibold text-emerald-800">
+                  Renewal card on file: {defaultCard.brand} ending in {defaultCard.last4}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1522,9 +2159,9 @@ function OvertimeRulesSettings({ rules, onAdd, onEdit, onDelete, onToggle }) {
 function GeneralSettings({ settings, onSave }) {
   return (
     <form onSubmit={onSave}>
-      <h3 className="text-2xl font-bold">General Tenant Configuration</h3>
+      <h3 className="text-2xl font-bold">General Client Configuration</h3>
       <div className="mt-7 grid gap-x-8 gap-y-6 md:grid-cols-2">
-        <Field name="tenantName" label="Tenant Name *" value={settings.tenantName} />
+        <Field name="tenantName" label="Client Name *" value={settings.tenantName} />
         <SelectField name="timeZone" label="Default Time Zone *" value={settings.timeZone} />
         <SelectField name="currency" label="Default Currency *" value={settings.currency} helper="Used for billing rates and invoices" />
         <SelectField name="weekStart" label="Week Start Day *" value={settings.weekStart} />
@@ -1564,7 +2201,7 @@ function SimpleSettings({ title, onAction }) {
 
 function ProfileModal({ profile, onClose, onSubmit }) {
   return (
-    <Modal title="Tenant Profile" onClose={onClose}>
+    <Modal title="Client Profile" onClose={onClose}>
       <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-base font-bold text-white">

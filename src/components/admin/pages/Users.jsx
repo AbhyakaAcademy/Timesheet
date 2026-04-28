@@ -27,21 +27,38 @@ export function Users() {
 
   useEffect(() => {
     let active = true;
+    const refreshUsers = () => {
+      adminApi
+        .users()
+        .then((payload) => {
+          if (!active) return;
+          setError("");
+          setUsers(payload);
+        })
+        .catch((err) => {
+          if (!active) return;
+          setError(err.message || "Failed to load users.");
+        });
+    };
 
-    adminApi
-      .users()
-      .then((payload) => {
-        if (!active) return;
-        setError("");
-        setUsers(payload);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setError(err.message || "Failed to load users.");
-      });
+    refreshUsers();
+
+    const intervalId = window.setInterval(refreshUsers, 10000);
+    const handleFocus = () => refreshUsers();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshUsers();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 

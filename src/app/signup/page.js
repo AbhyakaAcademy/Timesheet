@@ -10,7 +10,7 @@ import {
   Loader2,
   Check
 } from "lucide-react";
-import { requestTenantSignup } from "@/lib/signup";
+import { requestTenantSignup, resendTenantVerificationEmail } from "@/lib/signup";
 
 export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -27,6 +27,9 @@ export default function SignUpPage() {
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
   const [formError, setFormError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [verificationUrl, setVerificationUrl] = useState("");
+  const [resendMessage, setResendMessage] = useState("");
+  const [resending, setResending] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
 
@@ -99,6 +102,8 @@ export default function SignUpPage() {
     e.preventDefault();
     setFormError("");
     setSuccessMessage("");
+    setVerificationUrl("");
+    setResendMessage("");
 
     const emailValid = validateEmail(email);
     const organizationValid = validateOrganization(organizationName);
@@ -120,6 +125,7 @@ export default function SignUpPage() {
           response?.message ||
             "We sent a verification email. Please check your inbox before signing in."
         );
+        setVerificationUrl(response?.verification_url || "");
       })
       .catch((error) => {
         setFormError(error.message || "Signup failed.");
@@ -135,6 +141,30 @@ export default function SignUpPage() {
     { label: "One special character", met: /[^A-Za-z0-9]/.test(password) },
     { label: "Passwords match", met: password && confirmPassword && password === confirmPassword }
   ];
+
+  const handleResendVerification = () => {
+    if (!email) {
+      setFormError("Enter your email address first.");
+      return;
+    }
+
+    setFormError("");
+    setResendMessage("");
+    setVerificationUrl("");
+    setResending(true);
+
+    resendTenantVerificationEmail(email)
+      .then((response) => {
+        setResendMessage(response?.message || "A new verification email has been sent.");
+        setVerificationUrl(response?.verification_url || "");
+      })
+      .catch((error) => {
+        setFormError(error.message || "Unable to resend verification email.");
+      })
+      .finally(() => {
+        setResending(false);
+      });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 relative">
@@ -198,7 +228,32 @@ export default function SignUpPage() {
 
             {successMessage ? (
               <div className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                {successMessage}
+                <p>{successMessage}</p>
+                <p className="mt-2 text-emerald-700">
+                  Check your inbox and spam folder for the verification email sent to {email}.
+                </p>
+                {verificationUrl ? (
+                  <a
+                    href={verificationUrl}
+                    className="mt-2 inline-flex font-semibold text-emerald-900 underline underline-offset-2"
+                  >
+                    Open verification link
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+
+            {resendMessage ? (
+              <div className="mb-6 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                <p>{resendMessage}</p>
+                {verificationUrl ? (
+                  <a
+                    href={verificationUrl}
+                    className="mt-2 inline-flex font-semibold text-sky-900 underline underline-offset-2"
+                  >
+                    Open verification link
+                  </a>
+                ) : null}
               </div>
             ) : null}
 
@@ -338,6 +393,15 @@ export default function SignUpPage() {
                 className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg flex justify-center gap-2"
               >
                 {isLoading ? <><Loader2 className="animate-spin" /> Creating...</> : "Create Account"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={isLoading || resending}
+                className="w-full rounded-lg border border-slate-300 py-3 text-slate-700"
+              >
+                {resending ? "Sending verification link..." : "Resend verification link"}
               </button>
 
               {/* SSO */}

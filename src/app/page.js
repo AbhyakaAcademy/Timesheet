@@ -1,8 +1,8 @@
 ﻿"use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { clearSession } from "@/lib/auth";
+import { clearSession, getApiBaseUrl } from "@/lib/auth";
 import {
   Clock,
   Timer,
@@ -18,10 +18,6 @@ import {
   UserRoundPlus,
   Globe,
   Star,
-  // Send,
-  Twitter,
-  Linkedin,
-  Facebook,
   Mail
 } from "lucide-react";
 
@@ -64,6 +60,9 @@ const basePlans = [
 // ];
 
 const demoSlots = ["09:00 AM", "10:30 AM", "12:00 PM", "02:30 PM", "04:00 PM", "05:30 PM"];
+const pageGutter = "px-6 sm:px-8 lg:px-12 xl:px-20 2xl:px-28";
+const pageShell = "mx-auto w-full max-w-[1680px]";
+const contentShell = "mx-auto w-full max-w-[1480px]";
 
 const toIsoDate = (date) => {
   const year = date.getFullYear();
@@ -77,6 +76,12 @@ export default function LandingPage() {
   const [showHelp, setShowHelp] = useState(false);
   const [showScheduleDemo, setShowScheduleDemo] = useState(false);
   const [region, setRegion] = useState("IN");
+  const [landingStats, setLandingStats] = useState({
+    todayMinutes: 504,
+    todayGoalPercent: 78,
+    teamMembers: 247,
+    weeklyProductivityDelta: 24,
+  });
   const todayIso = useMemo(() => toIsoDate(new Date()), []);
   // const [feedbackForm, setFeedbackForm] = useState({ name: "", email: "", rating: 0, feedback: "" });
   const feedbackList = [
@@ -180,9 +185,39 @@ export default function LandingPage() {
   //   setFeedbackForm({ name: "", email: "", rating: 0, feedback: "" });
   // };
 
-  const openInfo = (label) => {
-    window.alert(`${label} page will be available soon.`);
-  };
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadLandingStats() {
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/public/landing-stats`, {
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!ignore) {
+          setLandingStats({
+            todayMinutes: Number(data?.todayMinutes || 0),
+            todayGoalPercent: Number(data?.todayGoalPercent || 0),
+            teamMembers: Number(data?.teamMembers || 0),
+            weeklyProductivityDelta: Number(data?.weeklyProductivityDelta || 0),
+          });
+        }
+      } catch {
+        // Keep the built-in landing stats if the public endpoint is unavailable.
+      }
+    }
+
+    loadLandingStats();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const todayHours = Math.floor(landingStats.todayMinutes / 60);
+  const todayRemainingMinutes = landingStats.todayMinutes % 60;
+  const todayActivityLabel = `${todayHours}h ${String(todayRemainingMinutes).padStart(2, "0")}m`;
+  const weeklyDeltaSign = landingStats.weeklyProductivityDelta >= 0 ? "+" : "";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f5f7fb] via-[#eef4fb] to-[#ececf8] overflow-hidden">
@@ -191,8 +226,8 @@ export default function LandingPage() {
         <div className="absolute bottom-20 left-10 w-96 h-96 bg-blue-400/20 rounded-full blur-3xl" />
       </div>
 
-      <header className="relative z-20 px-6 py-5 bg-transparent">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      <header className={`relative z-20 ${pageGutter} py-5 bg-transparent`}>
+        <div className={`${pageShell} flex items-center justify-between`}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
               <Clock className="w-5 h-5 text-white" />
@@ -240,24 +275,25 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <section className="relative px-6 pt-16 pb-24">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
-          <div>
+      <section className={`relative ${pageGutter} pt-16 pb-24`}>
+        <div className={`${pageShell} grid grid-cols-1 gap-12 items-start lg:grid-cols-2 xl:grid-cols-[1.08fr_0.92fr] 2xl:grid-cols-[1.14fr_0.86fr]`}>
+          <div className="max-w-[780px]">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-[0_10px_24px_rgba(15,23,42,0.08)] text-[13px] leading-none text-indigo-600 mb-6">
               <Zap className="w-3.5 h-3.5" strokeWidth={2.1} />
               Enterprise Time Management
             </div>
 
-            <h1 className="text-[46px] md:text-[54px] leading-[1.08] tracking-[-0.03em] font-medium text-[#0f1d38] mb-6">
+            <h1 className="text-[46px] leading-[1.08] tracking-[-0.03em] font-medium text-[#0f1d38] mb-6 md:text-[54px] xl:text-[62px] 2xl:text-[70px]">
               Transform Time Into
               <br />
               <span className="bg-gradient-to-r from-[#4a47f0] to-[#7e1ee7] bg-clip-text text-transparent">Team Success</span>{" "}
               with
-              <br />
+              <span className="xl:hidden"><br /></span>
+              <span className="hidden xl:inline"> </span>
               <span className="font-semibold">Abhyaka</span>
             </h1>
 
-            <p className="text-[18px] leading-[1.6] text-slate-600 max-w-[700px] mb-8">
+            <p className="text-[18px] leading-[1.6] text-slate-600 max-w-[760px] mb-8">
               Revolutionary timesheet platform that transforms how enterprises track time, manage teams, and drive productivity. Join 10,000+ companies already saving 20+ hours per week.
             </p>
 
@@ -300,16 +336,16 @@ export default function LandingPage() {
               <div className="flex items-start justify-between mb-6">
                 <div>
                   <p className="text-[20px] leading-none text-slate-600 mb-2">Today&apos;s Activity</p>
-                  <h2 className="text-[42px] leading-none font-medium text-[#0e1f44]">8h 24m</h2>
+                  <h2 className="text-[42px] leading-none font-medium text-[#0e1f44]">{todayActivityLabel}</h2>
                 </div>
                 <div className="w-[70px] h-[70px] bg-gradient-to-br from-[#11ca93] to-[#09b6aa] rounded-[16px] flex items-center justify-center text-white">
                   <Timer className="w-9 h-9" strokeWidth={1.8} />
                 </div>
               </div>
               <div className="h-2.5 bg-slate-200/70 rounded-full overflow-hidden">
-                <div className="h-full w-[78%] bg-gradient-to-r from-[#12c084] to-[#14b8a6]" />
+                <div className="h-full bg-gradient-to-r from-[#12c084] to-[#14b8a6]" style={{ width: `${landingStats.todayGoalPercent}%` }} />
               </div>
-              <p className="text-[16px] text-slate-600 mt-3">78% of daily goal completed</p>
+              <p className="text-[16px] text-slate-600 mt-3">{landingStats.todayGoalPercent}% of daily goal completed</p>
             </div>
 
             <div className="absolute top-[145px] right-0 w-[300px] bg-white/95 rounded-[20px] border border-slate-200/80 shadow-[0_20px_38px_rgba(15,23,42,0.11)] px-5 py-5">
@@ -319,7 +355,7 @@ export default function LandingPage() {
                 </div>
                 <div>
                   <p className="text-[15px] leading-none text-slate-600 mb-1.5">Team Members</p>
-                  <h3 className="text-[38px] leading-none font-medium text-[#0e1f44]">247</h3>
+                  <h3 className="text-[38px] leading-none font-medium text-[#0e1f44]">{landingStats.teamMembers}</h3>
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -339,7 +375,7 @@ export default function LandingPage() {
               <div className="flex justify-between items-start mb-6">
                 <div>
                   <p className="text-[14px] leading-none text-slate-600 mb-2">This Week</p>
-                  <h3 className="text-[20px] leading-tight font-semibold tracking-[-0.01em] text-[#0e1f44]">+24% Productivity</h3>
+                  <h3 className="text-[20px] leading-tight font-semibold tracking-[-0.01em] text-[#0e1f44]">{weeklyDeltaSign}{landingStats.weeklyProductivityDelta}% Productivity</h3>
                 </div>
                 <div className="w-[50px] h-[50px] rounded-[12px] bg-gradient-to-br from-sky-500 to-blue-500 flex items-center justify-center">
                   <BarChart3 className="w-6 h-6 text-white" strokeWidth={1.8} />
@@ -359,8 +395,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="features" className="relative z-10 px-6 py-24 bg-white">
-        <div className="max-w-7xl mx-auto">
+      <section id="features" className={`relative z-10 ${pageGutter} py-24 bg-white`}>
+        <div className={contentShell}>
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">Powerful Features for Modern Teams</h2>
             <p className="text-xl text-gray-600">Everything you need to manage time effectively across your organization</p>
@@ -387,8 +423,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="pricing" className="relative z-10 px-6 py-24 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-        <div className="max-w-7xl mx-auto">
+      <section id="pricing" className={`relative z-10 ${pageGutter} py-24 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100`}>
+        <div className={contentShell}>
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">Simple, Transparent Pricing</h2>
             <p className="text-xl text-gray-600">Choose the plan that fits your organization</p>
@@ -453,7 +489,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="relative z-10 px-6 py-24 bg-white">
+      <section className={`relative z-10 ${pageGutter} py-24 bg-white`}>
         <div className="max-w-4xl mx-auto">
           <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-3xl p-12 text-white text-center shadow-2xl">
             <Calendar className="w-16 h-16 mx-auto mb-6" />
@@ -474,7 +510,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="about" className="relative z-10 px-6 py-24 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+      <section id="about" className={`relative z-10 ${pageGutter} py-24 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100`}>
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">About Abhyaka</h2>
@@ -496,8 +532,8 @@ export default function LandingPage() {
       </section>
 
       {/*
-      <section className="relative z-10 px-6 py-16 bg-white overflow-hidden">
-        <div className="max-w-7xl mx-auto">
+      <section className={`relative z-10 ${pageGutter} py-16 bg-white overflow-hidden`}>
+        <div className={pageShell}>
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">Trusted by Leading Organizations</h2>
             <p className="text-2xl text-gray-600">Join thousands of companies transforming their time management</p>
@@ -519,8 +555,8 @@ export default function LandingPage() {
       </section>
       */}
 
-      <section className="relative z-10 px-6 py-24 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-        <div className="max-w-7xl mx-auto">
+      <section className={`relative z-10 ${pageGutter} py-24 bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100`}>
+        <div className={contentShell}>
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">Loved by Teams Worldwide</h2>
             <p className="text-2xl text-gray-600">See what our customers have to say about Abhyaka</p>
@@ -555,7 +591,7 @@ export default function LandingPage() {
       </section>
 
       {/*
-      <section className="relative z-10 px-6 py-24 bg-white">
+      <section className={`relative z-10 ${pageGutter} py-24 bg-white`}>
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12">
             <h3 className="text-4xl font-bold text-gray-900 mb-4">Share Your Experience</h3>
@@ -604,8 +640,8 @@ export default function LandingPage() {
       </section>
       */}
 
-      <footer className="px-6 py-16 bg-[#071a3c] text-slate-300 border-t border-slate-700/40">
-        <div className="max-w-[1520px] mx-auto">
+      <footer className={`${pageGutter} py-16 bg-[#071a3c] text-slate-300 border-t border-slate-700/40`}>
+        <div className={`${pageShell} max-w-[1680px]`}>
           <div className="grid md:grid-cols-4 gap-12 mb-12">
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -619,11 +655,13 @@ export default function LandingPage() {
               </div>
               <p className="text-slate-300">Enterprise-grade timesheet and workforce management platform trusted by 10,000+ organizations worldwide.</p>
               <div className="flex items-center gap-3 mt-6">
-                {[Twitter, Linkedin, Facebook, Mail].map((Icon, idx) => (
-                  <span key={idx} className="w-11 h-11 rounded-xl bg-slate-800/70 border border-slate-700 inline-flex items-center justify-center">
-                    <Icon className="w-5 h-5 text-slate-200" />
-                  </span>
-                ))}
+                <a
+                  href="mailto:support@abhyaka.com"
+                  className="w-11 h-11 rounded-xl bg-slate-800/70 border border-slate-700 inline-flex items-center justify-center transition hover:bg-slate-700"
+                  aria-label="Email Abhyaka support"
+                >
+                  <Mail className="w-5 h-5 text-slate-200" />
+                </a>
               </div>
             </div>
 
@@ -632,10 +670,8 @@ export default function LandingPage() {
               <ul className="space-y-3 text-slate-300">
                 <li><button onClick={() => scrollToSection("features")}>Features</button></li>
                 <li><button onClick={() => scrollToSection("pricing")}>Pricing</button></li>
-                <li><button onClick={() => openInfo("Integrations")}>Integrations</button></li>
-                <li><button onClick={() => openInfo("Security")}>Security</button></li>
-                <li><button onClick={() => openInfo("Mobile Apps")}>Mobile Apps</button></li>
-                <li><Link href="/dashboard">Dashboard</Link></li>
+                <li><Link href="/subscription">Start Free Trial</Link></li>
+                <li><Link href="/login">Log In</Link></li>
               </ul>
             </div>
 
@@ -643,24 +679,17 @@ export default function LandingPage() {
               <p className="font-semibold text-white mb-4">Company</p>
               <ul className="space-y-3 text-slate-300">
                 <li><button onClick={() => scrollToSection("about")}>About</button></li>
-                <li><button onClick={() => openInfo("Careers")}>Careers</button></li>
-                <li><button onClick={() => openInfo("Blog")}>Blog</button></li>
-                <li><button onClick={() => openInfo("Press Kit")}>Press Kit</button></li>
-                <li><button onClick={() => openInfo("Partners")}>Partners</button></li>
-                <li><button onClick={() => openInfo("Contact Sales")}>Contact Sales</button></li>
+                <li><button onClick={() => setShowScheduleDemo(true)}>Schedule Demo</button></li>
+                <li><button onClick={() => setShowHelp(true)}>Contact Support</button></li>
               </ul>
             </div>
 
             <div>
-              <p className="font-semibold text-white mb-4">Resources</p>
+              <p className="font-semibold text-white mb-4">Access</p>
               <ul className="space-y-3 text-slate-300">
-                <li><button onClick={() => openInfo("Documentation")}>Documentation</button></li>
-                <li><button onClick={() => openInfo("API Reference")}>API Reference</button></li>
-                <li className="pt-1 font-semibold text-slate-200">Support Center</li>
-                <li><button onClick={() => openInfo("Community Forum")}>Community Forum</button></li>
-                <li><button onClick={() => openInfo("Status Page")}>Status Page</button></li>
-                <li><button onClick={() => openInfo("Terms of Service")}>Terms of Service</button></li>
-                <li><button onClick={() => openInfo("Privacy Policy")}>Privacy Policy</button></li>
+                <li><Link href="/signup">Create Account</Link></li>
+                <li><Link href="/login">Client Login</Link></li>
+                <li><Link href="/subscription">Subscription</Link></li>
               </ul>
             </div>
           </div>
@@ -668,9 +697,9 @@ export default function LandingPage() {
           <div className="pt-6 border-t border-slate-700/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 text-slate-300">
             <p>&copy; 2026 Abhyaka. All rights reserved.</p>
             <div className="flex items-center gap-6 text-slate-400">
-              <button onClick={() => openInfo("Cookie Settings")}>Cookie Settings</button>
-              <button onClick={() => openInfo("Legal")}>Legal</button>
-              <button onClick={() => openInfo("Sitemap")}>Sitemap</button>
+              <button onClick={() => scrollToSection("features")}>Features</button>
+              <button onClick={() => scrollToSection("pricing")}>Pricing</button>
+              <button onClick={() => scrollToSection("about")}>About</button>
             </div>
           </div>
         </div>

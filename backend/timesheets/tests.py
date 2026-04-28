@@ -2,11 +2,13 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from notifications.models import Notification
+from tenants.models import TenantOrganization
 from timesheets.models import Project, TeamMembership, TimeEntry, TimeEntrySource, Timesheet, TimesheetLine
 from timesheets.views import week_start_for
 
@@ -14,17 +16,20 @@ from timesheets.views import week_start_for
 class ManagerEmployeeNotificationTests(APITestCase):
     def setUp(self):
         User = get_user_model()
+        self.organization = TenantOrganization.objects.create(name="Manager Org", slug="manager-org")
         self.employee = User.objects.create_user(
             username="employee1",
             password="Pass@12345",
             role="employee",
             first_name="Employee",
             last_name="One",
+            organization=self.organization,
         )
         self.manager = User.objects.create_user(
             username="manager1",
             password="Pass@12345",
             role="manager",
+            organization=self.organization,
         )
         TeamMembership.objects.create(manager=self.manager, employee=self.employee)
         self.project = Project.objects.create(name="Project Alpha", code="ALPHA")
@@ -147,3 +152,27 @@ class ManagerEmployeeNotificationTests(APITestCase):
                 message__contains="Employee One submitted timesheet",
             ).exists()
         )
+
+    @override_settings(
+        DEBUG=True,
+        EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
+        EMAIL_HOST_USER="",
+        EMAIL_HOST_PASSWORD="",
+        DEFAULT_FROM_EMAIL="webmaster@localhost",
+    )
+    def test_manager_can_invite_employee(self):
+        self.client.force_authenticate(self.manager)
+        response = self.client.post(
+            reverse("manager_employees"),
+            {
+                "name": "Invited Employee",
+                "email": "manager-invite@example.com",
+                "department": "Operations",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["email"], "manager-invite@example.com")
+        self.assertTrue(response.data["invitation_pending"])
+        self.assertIn("invitation_url", response.data)

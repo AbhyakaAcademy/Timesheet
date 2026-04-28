@@ -20,10 +20,22 @@ export default function RouteGuard({ allowedRoles = [], children }) {
     getSessionSnapshot,
     getSessionSnapshot
   );
+  const isMounted = useSyncExternalStore(
+    (callback) => {
+      callback();
+      return () => {};
+    },
+    () => true,
+    () => false
+  );
 
   const hasAccess = Boolean(session.token && session.role) && (allowedRoles.length === 0 || allowedRoles.includes(session.role));
 
   useEffect(() => {
+    if (!isMounted) {
+      return;
+    }
+
     if (!session.token || !session.role) {
       router.replace("/login");
       return;
@@ -33,9 +45,9 @@ export default function RouteGuard({ allowedRoles = [], children }) {
       router.replace(getRoleHome(session.role));
       return;
     }
-  }, [allowedRoles, router, session]);
+  }, [allowedRoles, isMounted, router, session]);
 
-  if (!hasAccess) {
+  if (!isMounted || !hasAccess) {
     return null;
   }
 

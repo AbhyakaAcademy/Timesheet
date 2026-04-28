@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Clock3, Eye, EyeOff, Loader2, Shield, Circle } from "lucide-react";
 import { getRoleHome, loginWithCredentials, persistSession, ROLE_DASHBOARD_MAP } from "@/lib/auth";
+import { requestPasswordReset } from "@/lib/signup";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,7 +15,11 @@ export default function LoginPage() {
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResetLoading, setIsResetLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [forgotMessage, setForgotMessage] = useState("");
+  const [forgotError, setForgotError] = useState("");
+  const [resetUrl, setResetUrl] = useState("");
   const showInfo = (msg) => window.alert(msg);
 
   useEffect(() => {
@@ -44,18 +49,31 @@ export default function LoginPage() {
 
   const handleForgotPassword = () => {
     setForgotEmail(username);
+    setForgotMessage("");
+    setForgotError("");
+    setResetUrl("");
     setShowForgotModal(true);
   };
 
-  const handleForgotPasswordSubmit = (e) => {
+  const handleForgotPasswordSubmit = async (e) => {
     e.preventDefault();
     if (!forgotEmail) {
-      showInfo("Please enter your email ID.");
+      setForgotError("Please enter your email ID.");
       return;
     }
-    showInfo(`Password reset link sent to ${forgotEmail}.`);
-    setShowForgotModal(false);
-    setForgotEmail("");
+    setForgotError("");
+    setForgotMessage("");
+    setResetUrl("");
+    setIsResetLoading(true);
+    try {
+      const response = await requestPasswordReset(forgotEmail);
+      setForgotMessage(response?.message || `Password reset link sent to ${forgotEmail}.`);
+      setResetUrl(response?.reset_url || "");
+    } catch (error) {
+      setForgotError(error.message || "Unable to send password reset email.");
+    } finally {
+      setIsResetLoading(false);
+    }
   };
 
   return (
@@ -73,6 +91,17 @@ export default function LoginPage() {
                 value={forgotEmail}
                 onChange={(e) => setForgotEmail(e.target.value)}
               />
+              {forgotError ? <p className="text-sm text-red-600">{forgotError}</p> : null}
+              {forgotMessage ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  <p>{forgotMessage}</p>
+                  {resetUrl ? (
+                    <a href={resetUrl} className="mt-2 inline-flex font-semibold text-emerald-900 underline underline-offset-2">
+                      Open reset link
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="flex gap-3">
                 <button
                   type="button"
@@ -83,9 +112,10 @@ export default function LoginPage() {
                 </button>
                 <button
                   type="submit"
+                  disabled={isResetLoading}
                   className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl py-3"
                 >
-                  Send Link
+                  {isResetLoading ? "Sending..." : "Send Link"}
                 </button>
               </div>
             </form>
@@ -144,12 +174,12 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Username</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Email or Username</label>
               <input
                 type="text"
                 value={username}
                 className="w-full border border-gray-300 rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                placeholder="Enter your username"
+                placeholder="Enter your email or username"
                 onChange={(e) => setUsername(e.target.value)}
               />
             </div>

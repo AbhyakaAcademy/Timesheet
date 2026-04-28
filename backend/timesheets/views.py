@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.db.models import Sum
 from django.http import FileResponse
@@ -13,7 +14,10 @@ from rest_framework.views import APIView
 
 from accounts.models import UserRole
 from accounts.permissions import IsEmployee, IsManagerOrAdmin
+from accounts.services import send_user_invitation_email
 from notifications.models import Notification
+from tenants.models import Department
+from tenants.serializers import TenantUserSerializer
 from timesheets.models import (
     ApprovalAction,
     Project,
@@ -41,6 +45,8 @@ from timesheets.serializers import (
     TimesheetSerializer,
 )
 
+User = get_user_model()
+
 
 def week_start_for(dt):
     return (dt - timedelta(days=dt.weekday())).date()
@@ -65,6 +71,68 @@ def notify_employee_managers(employee, title, message):
             title=title,
             message=message,
         )
+
+
+def _split_name(value):
+    parts = [part for part in (value or "").strip().split() if part]
+    if not parts:
+        return "", ""
+    return parts[0], " ".join(parts[1:])
+
+
+def _build_username(name, email):
+    seed = (email or "").split("@")[0].strip().lower() or "".join(part.lower() for part in name.split()) or "employee"
+    username = seed[:150]
+    original = username
+    index = 2
+    while User.objects.filter(username=username).exists():
+        username = f"{original[:140]}{index}"
+        index += 1
+    return username
+
+
+def _create_manager_employee(payload, manager):
+    organization = manager.organization
+    if organization is None:
+        raise ValueError("Manager is not linked to an organization.")
+
+    name = (payload.get("name") or "").strip()
+    email = (payload.get("email") or "").strip().lower()
+    department_name = (payload.get("department") or "").strip()
+
+    if not name or not email or not department_name:
+        raise ValueError("Name, email, and department are required.")
+
+    if User.objects.filter(email__iexact=email).exists():
+        raise ValueError("A user with this email already exists.")
+
+    first_name, last_name = _split_name(name)
+    department, _ = Department.objects.get_or_create(
+        organization=organization,
+        name=department_name,
+        defaults={"status": "Active"},
+    )
+
+    user = User.objects.create(
+        username=_build_username(name, email),
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        role=UserRole.EMPLOYEE,
+        organization=organization,
+        department=department,
+        is_active=False,
+    )
+    user.set_unusable_password()
+    user.save(update_fields=["password"])
+
+    TeamMembership.objects.get_or_create(manager=manager, employee=user)
+    delivery = send_user_invitation_email(
+        user=user,
+        invited_by=manager,
+        invited_by_name=manager.get_full_name() or manager.username,
+    )
+    return user, delivery
 
 
 class EmployeeDashboardSummaryView(APIView):
@@ -432,6 +500,33 @@ class ManagerTimesheetAttachmentListView(APIView):
             employee_ids = TeamMembership.objects.filter(manager=request.user).values_list("employee_id", flat=True)
             queryset = queryset.filter(timesheet__employee_id__in=employee_ids)
         return Response(TimesheetAttachmentSerializer(queryset[:50], many=True).data)
+
+
+class ManagerEmployeesView(APIView):
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+
+    def get(self, request):
+        queryset = User.objects.filter(role=UserRole.EMPLOYEE)
+        if request.user.role == UserRole.MANAGER:
+            employee_ids = TeamMembership.objects.filter(manager=request.user).values_list("employee_id", flat=True)
+            queryset = queryset.filter(id__in=employee_ids)
+        queryset = queryset.select_related("department", "organization", "invitation").order_by("-date_joined")
+        return Response(TenantUserSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        if request.user.role != UserRole.MANAGER:
+            return Response({"detail": "Only managers can invite employees from this flow."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            user, delivery = _create_manager_employee(request.data, request.user)
+        except Exception as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        payload = TenantUserSerializer(user).data
+        if delivery and delivery.get("delivery_mode") == "development":
+            payload["invitation_url"] = delivery.get("invitation_url")
+            payload["invite_message"] = "Email is not configured locally, so use the invite link below."
+        return Response(payload, status=status.HTTP_201_CREATED)
 
 
 class ManagerTimesheetListView(APIView):

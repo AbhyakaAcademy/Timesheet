@@ -57,7 +57,7 @@ export function Overview() {
         <KPICard title="Total Users" value={data?.totalUsers || 0} icon={Users} />
         <KPICard title="Monthly Revenue" value={data ? formatCurrency(data.monthlyRevenue) : "-"} icon={DollarSign} />
         <KPICard title="Active Subscriptions" value={data?.activeSubscriptions || 0} icon={FileText} />
-        <KPICard title="Open Tickets" value="Support" icon={Ticket} />
+        <KPICard title="Platform Issues" value={data?.openPlatformIssues || 0} icon={Ticket} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -136,6 +136,32 @@ export function Overview() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white border-2 border-gray-300 p-6">
+        <div className="mb-5">
+          <h3 className="text-lg font-semibold text-gray-900">Recent Dashboard Activity</h3>
+          <p className="text-sm text-gray-600">Latest page opens, slow requests, and client-side issues across dashboards</p>
+        </div>
+        <div className="space-y-3">
+          {(data?.recentActivity || []).map((entry) => (
+            <div key={entry.id} className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{entry.summary}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {entry.clientName} • {entry.actorRole || "user"} • {entry.dashboard} • {entry.timestamp}
+                  </p>
+                </div>
+                <StatusBadge status={entry.severity} variant="compact" />
+              </div>
+              {entry.details ? <p className="mt-2 text-sm text-gray-700">{entry.details}</p> : null}
+            </div>
+          ))}
+          {(!data?.recentActivity || data.recentActivity.length === 0) ? (
+            <p className="text-sm text-gray-500">No dashboard activity has been reported yet.</p>
+          ) : null}
         </div>
       </div>
     </div>

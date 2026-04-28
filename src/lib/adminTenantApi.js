@@ -43,6 +43,7 @@ export const adminApi = {
   updateSubscription: (payload) => apiFetch("/admin/subscriptions", { method: "PATCH", body: JSON.stringify(payload) }),
   revenue: () => apiFetch("/admin/revenue"),
   systemHealth: () => apiFetch("/admin/system-health"),
+  dashboardActivity: () => apiFetch("/admin/dashboard-activity"),
   settings: () => apiFetch("/admin/settings"),
   updateSettings: (payload) => apiFetch("/admin/settings", { method: "PATCH", body: JSON.stringify(payload) }),
   invoices: () => apiFetch("/finance/invoices"),

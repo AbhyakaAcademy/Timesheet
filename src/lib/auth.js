@@ -14,7 +14,7 @@ export const ROLE_DASHBOARD_MAP = {
   manager: "/dashboard/manager",
   finance: "/dashboard/finance",
   admin: "/dashboard/admin/overview",
-  tenant: "/dashboard",
+  tenant: "/dashboard/tenant",
 };
 
 export function getApiBaseUrl() {

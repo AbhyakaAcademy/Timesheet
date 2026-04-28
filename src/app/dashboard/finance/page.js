@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { clearSession } from '@/lib/auth'
+import { reportDashboardActivity } from '@/lib/dashboardActivity'
 import HelpButton from '@/components/support/HelpButton'
 import { clearClientNotification, clearClientNotifications, getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from '@/lib/supportTickets'
 
@@ -34,10 +35,37 @@ async function apiFetch(path, options = {}) {
     headers.Authorization = `Bearer ${token}`
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers
-  })
+  const startedAt = Date.now()
+  let response
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers
+    })
+  } catch (error) {
+    reportDashboardActivity({
+      event_type: 'request_error',
+      severity: 'high',
+      summary: `Dashboard API request failed for ${path}`,
+      details: error?.message || 'Network request failed.',
+      duration_ms: Date.now() - startedAt,
+      metadata: { apiPath: path, method: options.method || 'GET' }
+    })
+    throw error
+  }
+
+  const duration = Date.now() - startedAt
+  if (!String(path).includes('/dashboard/activity') && duration >= 10000) {
+    reportDashboardActivity({
+      event_type: 'slow_request',
+      severity: 'high',
+      summary: `Slow dashboard API request on ${path}`,
+      details: `Request took ${duration}ms.`,
+      duration_ms: duration,
+      metadata: { apiPath: path, method: options.method || 'GET', status: response.status }
+    })
+  }
 
   if (response.status === 204) {
     return null
@@ -45,6 +73,14 @@ async function apiFetch(path, options = {}) {
 
   const data = await response.json().catch(() => null)
   if (!response.ok) {
+    reportDashboardActivity({
+      event_type: 'request_error',
+      severity: response.status >= 500 ? 'critical' : 'medium',
+      summary: `Dashboard API error on ${path}`,
+      details: data?.error?.message || data?.detail || 'Request failed',
+      duration_ms: duration,
+      metadata: { apiPath: path, method: options.method || 'GET', status: response.status }
+    })
     throw new Error(data?.error?.message || data?.detail || 'Request failed')
   }
   return data
