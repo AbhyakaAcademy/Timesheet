@@ -78,6 +78,7 @@ export default function EmployeeDashboardPage() {
   const [summary, setSummary] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [supportNotifications, setSupportNotifications] = useState([]);
+  const [manualRequests, setManualRequests] = useState([]);
   const [maxDailyHours, setMaxDailyHours] = useState(12);
 
   useEffect(() => {
@@ -98,13 +99,14 @@ export default function EmployeeDashboardPage() {
 
   const loadData = useCallback(async () => {
     setErrorMessage("");
-    const [meRes, summaryRes, timesheetRes, historyRes, projectsRes, notificationsRes] = await Promise.all([
+    const [meRes, summaryRes, timesheetRes, historyRes, projectsRes, notificationsRes, manualRequestsRes] = await Promise.all([
       apiFetch("/me/"),
       apiFetch("/employee/dashboard-summary"),
       apiFetch("/timesheets/current"),
       apiFetch("/timesheets"),
       apiFetch("/projects"),
       apiFetch("/notifications"),
+      apiFetch("/employee/manual-entry-requests"),
     ]);
 
     setMe(meRes);
@@ -112,6 +114,17 @@ export default function EmployeeDashboardPage() {
     setTimesheet(timesheetRes);
     setTimesheetHistory(historyRes || []);
     setProjects(projectsRes || []);
+    setManualRequests(
+      (manualRequestsRes || []).map((item) => ({
+        id: item.id,
+        requestType: item.request_type,
+        requestDate: item.request_date,
+        comment: item.comment,
+        status: item.status,
+        managerComment: item.manager_comment,
+        createdAt: item.created_at,
+      }))
+    );
     setNotifications(
       (notificationsRes || []).map((item) => ({
         id: String(item.id),
@@ -175,6 +188,11 @@ export default function EmployeeDashboardPage() {
     ];
   }, [timesheet, timesheetHistory]);
 
+  const allVisibleLines = useMemo(
+    () => currentWeekSheets.flatMap((sheet) => sheet?.lines || []),
+    [currentWeekSheets]
+  );
+
   const activityEntries = useMemo(() => {
     if (!timesheet) return [];
     return (timesheet.lines || [])
@@ -194,10 +212,10 @@ export default function EmployeeDashboardPage() {
 
   const todaySeconds = useMemo(() => {
     const today = getLocalDateValue();
-    return (timesheet?.lines || [])
+    return allVisibleLines
       .filter((line) => line.date === today)
       .reduce((sum, line) => sum + getLineDurationSeconds(line), 0);
-  }, [timesheet]);
+  }, [allVisibleLines]);
 
   const weekSeconds = useMemo(() => {
     return currentWeekSheets.reduce(
@@ -332,38 +350,17 @@ export default function EmployeeDashboardPage() {
     }
   };
 
-  const handleManualEntry = async ({ projectId, note, startIso, endIso }) => {
-    const durationHours = (new Date(endIso).getTime() - new Date(startIso).getTime()) / 3600000;
-    const todayDate = getLocalDateValue();
-
-    if (getLocalDateValue(startIso) === todayDate && todaySeconds / 3600 + durationHours > maxDailyHours) {
-      setErrorMessage(`Daily limit reached. You cannot log more than ${maxDailyHours} hours in a day.`);
-      return;
-    }
-
+  const handleManualEntryRequest = async ({ requestType, requestDate, comment }) => {
     setBusy(true);
     try {
-      const entry = await apiFetch("/time-entries/manual", {
+      await apiFetch("/employee/manual-entry-requests", {
         method: "POST",
         body: JSON.stringify({
-          project_id: projectId,
-          start_time: new Date(startIso).toISOString(),
-          end_time: new Date(endIso).toISOString(),
-          note,
+          request_type: requestType,
+          request_date: requestDate,
+          comment,
         }),
       });
-
-      const durationSeconds = Number(entry.duration_seconds || 0);
-      const hours = durationSeconds > 0 ? durationSeconds / 3600 : Number(entry.duration_minutes || 0) / 60;
-      await addTimesheetLine({
-        date: getLocalDateValue(startIso),
-        project_id: projectId,
-        description: note || "Manual entry",
-        hours: Math.max(Number(hours.toFixed(2)), 0.01),
-        shift: "DAY",
-        time_entry_id: entry.id,
-      });
-
       await refreshData();
     } finally {
       setBusy(false);
@@ -483,11 +480,12 @@ export default function EmployeeDashboardPage() {
           projects={projects}
           activeEntry={summary?.active_entry || null}
           entries={activityEntries}
+          manualRequests={manualRequests}
           todayHours={todaySeconds / 3600}
           maxDailyHours={maxDailyHours}
           onPunchIn={handlePunchIn}
           onPunchOut={handlePunchOut}
-          onManualEntry={handleManualEntry}
+          onManualEntryRequest={handleManualEntryRequest}
           onFilesUpload={handleUploadFiles}
           busy={busy}
         />

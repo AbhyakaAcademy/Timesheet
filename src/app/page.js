@@ -318,7 +318,7 @@ export default function LandingPage() {
             <div className="mt-4 lg:mt-32 flex flex-wrap items-center gap-x-9 gap-y-3 text-[13px] text-slate-600">
               <div className="inline-flex items-center gap-3">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                Free 30-day free trial
+                30-day free trial
               </div>
               <div className="inline-flex items-center gap-3">
                 <CheckCircle2 className="w-4 h-4 text-emerald-500" />

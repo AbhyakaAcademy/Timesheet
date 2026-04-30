@@ -148,3 +148,42 @@ class TimesheetApproval(models.Model):
 
     class Meta:
         ordering = ("-acted_at",)
+
+
+class ManualEntryRequestStatus(models.TextChoices):
+    PENDING = "PENDING", "Pending"
+    APPROVED = "APPROVED", "Approved"
+    REJECTED = "REJECTED", "Rejected"
+
+
+class ManualEntryRequest(models.Model):
+    employee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="manual_entry_requests",
+    )
+    request_type = models.CharField(max_length=120)
+    request_date = models.DateField()
+    comment = models.TextField()
+    status = models.CharField(max_length=20, choices=ManualEntryRequestStatus.choices, default=ManualEntryRequestStatus.PENDING)
+    manager_comment = models.CharField(max_length=255, blank=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_manual_entry_requests",
+    )
+    approved_entry = models.ForeignKey(
+        TimeEntry,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="manual_entry_requests",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")

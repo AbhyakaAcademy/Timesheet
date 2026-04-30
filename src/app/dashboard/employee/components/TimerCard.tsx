@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Clock, Play, Square, Upload } from "lucide-react";
+import { Clock, Play, Square, Upload } from "lucide-react";
 
 type ProjectOption = {
   id: number;
@@ -19,22 +19,33 @@ type ActivityEntry = {
   dateLabel: string;
 };
 
-type ManualPayload = {
-  projectId: number;
-  note: string;
-  startIso: string;
-  endIso: string;
+type ManualRequestItem = {
+  id: number | string;
+  requestType: string;
+  requestDate: string;
+  comment: string;
+  status: string;
+  managerComment?: string;
+  createdAt?: string;
 };
 
 type TimerCardProps = {
   projects: ProjectOption[];
   activeEntry: { id: number; project: { id: number; name: string }; start_time?: string | null } | null;
   entries: ActivityEntry[];
+  manualRequests: ManualRequestItem[];
   todayHours: number;
   maxDailyHours: number;
   onPunchIn: (payload: { projectId: number; note: string }) => Promise<void>;
   onPunchOut: (entryId: number, payload: { note: string }) => Promise<void>;
-  onManualEntry: (payload: ManualPayload) => Promise<void>;
+  onManualEntryRequest: (payload: {
+    requestType: string;
+    requestDate: string;
+    comment: string;
+    projectId: number;
+    startDateTime: string;
+    endDateTime: string;
+  }) => Promise<void>;
   onFilesUpload: (files: File[]) => Promise<void>;
   busy: boolean;
 };
@@ -63,78 +74,15 @@ const getLocalDateValue = () => {
   return `${year}-${month}-${day}`;
 };
 
-const timeZoneOptionGroups = [
-  {
-    label: "India",
-    options: [{ value: "Asia/Kolkata", label: "India (IST)" }],
-  },
-  {
-    label: "United States",
-    options: [
-      { value: "America/New_York", label: "Eastern Time (ET)" },
-      { value: "America/Chicago", label: "Central Time (CT)" },
-      { value: "America/Denver", label: "Mountain Time (MT)" },
-      { value: "America/Phoenix", label: "Arizona Time (MST)" },
-      { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
-      { value: "America/Anchorage", label: "Alaska Time (AKT)" },
-      { value: "America/Adak", label: "Hawaii-Aleutian Time (HAT)" },
-      { value: "Pacific/Honolulu", label: "Hawaii Time (HT)" },
-      { value: "America/Puerto_Rico", label: "Atlantic Time (Puerto Rico)" },
-      { value: "Pacific/Pago_Pago", label: "Samoa Time (American Samoa)" },
-      { value: "Pacific/Guam", label: "Chamorro Time (Guam)" },
-    ],
-  },
-  {
-    label: "United Kingdom",
-    options: [{ value: "Europe/London", label: "UK (GMT/BST)" }],
-  },
-];
-
-const getDateValueForTimeZone = (timeZone: string, value = new Date()) => {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
+const formatDateTimeLabel = (value: string) => {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-US", {
     year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(value);
-
-  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${partMap.year}-${partMap.month}-${partMap.day}`;
-};
-
-const getTimeZoneOffsetMinutes = (date: Date, timeZone: string) => {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
     minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-
-  const partMap = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const zonedTime = Date.UTC(
-    Number(partMap.year),
-    Number(partMap.month) - 1,
-    Number(partMap.day),
-    Number(partMap.hour),
-    Number(partMap.minute),
-    Number(partMap.second)
-  );
-
-  return (zonedTime - date.getTime()) / 60000;
-};
-
-const getZonedIso = (dateValue: string, timeValue: string, timeZone: string) => {
-  const [year, month, day] = dateValue.split("-").map(Number);
-  const [hours, minutes] = timeValue.split(":").map(Number);
-  const localAsUtc = Date.UTC(year, month - 1, day, hours, minutes, 0);
-  const firstOffset = getTimeZoneOffsetMinutes(new Date(localAsUtc), timeZone);
-  const firstUtc = localAsUtc - firstOffset * 60000;
-  const finalOffset = getTimeZoneOffsetMinutes(new Date(firstUtc), timeZone);
-  return new Date(localAsUtc - finalOffset * 60000).toISOString();
+  });
 };
 
 const formatDuration = (minutes: number) => {
@@ -149,57 +97,22 @@ const formatDuration = (minutes: number) => {
   return `${hours}h ${mins.toString().padStart(2, "0")}m`;
 };
 
-const formatTwelveHourInput = (value: string) => {
-  const upper = value.toUpperCase().replace(/\s+/g, " ").trim();
-  const digits = upper.replace(/[^0-9APM]/g, "");
-  const suffixMatch = digits.match(/(AM|PM)$/);
-  const suffix = suffixMatch ? suffixMatch[1] : "";
-  const timeDigits = digits.replace(/(AM|PM)$/g, "").slice(0, 4);
-
-  if (timeDigits.length <= 2) {
-    return `${timeDigits}${suffix ? ` ${suffix}` : ""}`.trim();
-  }
-
-  return `${timeDigits.slice(0, 2)}:${timeDigits.slice(2)}${suffix ? ` ${suffix}` : ""}`.trim();
-};
-
-const toTwentyFourHourTime = (value: string) => {
-  const normalized = value.trim().toUpperCase();
-  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-
-  if (hours < 1 || hours > 12 || minutes < 0 || minutes > 59) {
-    return null;
-  }
-
-  return { hours, minutes };
-};
-
-const toTwentyFourHourValue = (value: string, meridiem: string) => {
-  const parsed = toTwentyFourHourTime(value);
-  if (!parsed) return null;
-
-  const { hours, minutes } = parsed;
-  let hours24 = hours % 12;
-  if (meridiem === "PM") {
-    hours24 += 12;
-  }
-
-  return `${String(hours24).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+const statusTone: Record<string, string> = {
+  PENDING: "bg-amber-100 text-amber-700",
+  APPROVED: "bg-emerald-100 text-emerald-700",
+  REJECTED: "bg-rose-100 text-rose-700",
 };
 
 export function TimerCard({
   projects,
   activeEntry,
   entries,
+  manualRequests,
   todayHours,
   maxDailyHours,
   onPunchIn,
   onPunchOut,
-  onManualEntry,
+  onManualEntryRequest,
   onFilesUpload,
   busy,
 }: TimerCardProps) {
@@ -207,14 +120,11 @@ export function TimerCard({
   const [projectId, setProjectId] = useState<number | "">("");
   const [note, setNote] = useState("");
 
-  const [manualProjectId, setManualProjectId] = useState<number | "">("");
-  const [manualDescription, setManualDescription] = useState("");
-  const [manualDate, setManualDate] = useState(() => getLocalDateValue());
-  const [manualStart, setManualStart] = useState("");
-  const [manualStartMeridiem, setManualStartMeridiem] = useState("AM");
-  const [manualEnd, setManualEnd] = useState("");
-  const [manualEndMeridiem, setManualEndMeridiem] = useState("PM");
-  const [manualTimeZone, setManualTimeZone] = useState("Asia/Kolkata");
+  const [manualRequestType, setManualRequestType] = useState("");
+  const [manualRequestProjectId, setManualRequestProjectId] = useState<number | "">("");
+  const [manualRequestStartDateTime, setManualRequestStartDateTime] = useState("");
+  const [manualRequestEndDateTime, setManualRequestEndDateTime] = useState("");
+  const [manualRequestComment, setManualRequestComment] = useState("");
   const [manualError, setManualError] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -296,52 +206,51 @@ export function TimerCard({
     }
   };
 
-  const handleManualEntry = async () => {
-    if (!manualProjectId || !manualDate) {
-      setManualError("Project, date, start, and end time are required.");
+  const handleManualEntryRequest = async () => {
+    const requestTypeInput = manualRequestType.trim();
+    const commentInput = manualRequestComment.trim();
+    const selectedProject = projects.find((project) => project.id === manualRequestProjectId);
+
+    if (
+      !requestTypeInput ||
+      !manualRequestProjectId ||
+      !manualRequestStartDateTime ||
+      !manualRequestEndDateTime ||
+      !commentInput
+    ) {
+      setManualError("Request reason, project, start time, end time, and details are required.");
       return;
     }
 
-    const parsedStart = toTwentyFourHourValue(manualStart, manualStartMeridiem);
-    const parsedEnd = toTwentyFourHourValue(manualEnd, manualEndMeridiem);
-
-    if (!parsedStart || !parsedEnd) {
-      setManualError("Enter start and end time in hh:mm format and choose AM/PM.");
-      return;
-    }
-
-    const startIso = getZonedIso(manualDate, parsedStart, manualTimeZone);
-    const endIso = getZonedIso(manualDate, parsedEnd, manualTimeZone);
-    const startDate = new Date(startIso);
-    const endDate = new Date(endIso);
-    if (endDate <= startDate) {
+    if (new Date(manualRequestEndDateTime).getTime() <= new Date(manualRequestStartDateTime).getTime()) {
       setManualError("End time must be after start time.");
-      return;
-    }
-
-    const durationHours = (endDate.getTime() - startDate.getTime()) / 3600000;
-    if (durationHours > maxDailyHours) {
-      setManualError(`Manual entry cannot exceed ${maxDailyHours} hours in a day.`);
-      return;
-    }
-
-    const todayDate = getDateValueForTimeZone(manualTimeZone);
-    if (manualDate === todayDate && todayHours + durationHours > maxDailyHours) {
-      setManualError(`Daily limit reached. You cannot log more than ${maxDailyHours} hours in a day.`);
       return;
     }
 
     setManualError("");
     try {
-      await onManualEntry({
-        projectId: Number(manualProjectId),
-        note: manualDescription,
-        startIso,
-        endIso,
+      const structuredComment = [
+        `Project: ${selectedProject ? `${selectedProject.name} (${selectedProject.code})` : manualRequestProjectId}`,
+        `Start: ${formatDateTimeLabel(manualRequestStartDateTime)}`,
+        `End: ${formatDateTimeLabel(manualRequestEndDateTime)}`,
+        `Employee details: ${commentInput}`,
+      ].join("\n");
+
+      await onManualEntryRequest({
+        requestType: requestTypeInput,
+        requestDate: manualRequestStartDateTime.slice(0, 10),
+        comment: structuredComment,
+        projectId: Number(manualRequestProjectId),
+        startDateTime: manualRequestStartDateTime,
+        endDateTime: manualRequestEndDateTime,
       });
-      setManualDescription("");
+      setManualRequestComment("");
+      setManualRequestType("");
+      setManualRequestProjectId("");
+      setManualRequestStartDateTime("");
+      setManualRequestEndDateTime("");
     } catch (error: any) {
-      setManualError(error.message || "Manual entry failed.");
+      setManualError(error.message || "Manual request failed.");
     }
   };
 
@@ -446,144 +355,95 @@ export function TimerCard({
         {errorMessage ? <p className="text-xs text-rose-600">{errorMessage}</p> : null}
       </div>
 
-      <div className="mt-6">
-        <h3 className="text-sm font-semibold text-gray-800">Recent Activity</h3>
-        <div className="mt-3 space-y-3">
-          {entries.map((entry) => (
-            <div key={entry.id} className="rounded-2xl border border-gray-200 bg-white px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{entry.project}</p>
-                {entry.description ? <p className="text-xs text-gray-500 mt-1">{entry.description}</p> : null}
-                <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-600">
-                  <span className="rounded-full bg-emerald-50 text-emerald-700 px-2 py-1">In: {entry.start}</span>
-                  <span className="rounded-full bg-rose-50 text-rose-700 px-2 py-1">Out: {entry.end}</span>
-                  <span className="rounded-full bg-gray-100 text-gray-600 px-2 py-1">{entry.dateLabel}</span>
-                </div>
-              </div>
-              <div className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                <ArrowRight className="h-4 w-4 text-gray-400" />
-                {formatDuration(entry.durationMinutes)}
-              </div>
-            </div>
-          ))}
-          {entries.length === 0 ? <p className="text-sm text-gray-500">No recent entries.</p> : null}
-        </div>
-      </div>
-
       <div className="mt-8 border-t border-gray-200 pt-6">
-        <h3 className="text-sm font-semibold text-gray-800">Manual Time Entry</h3>
-        <p className="text-xs text-gray-500 mt-1">Record time with date and start/end time.</p>
+        <h3 className="text-lg font-bold text-gray-900">Missed Punch Request</h3>
+        <p className="mt-1 text-xs text-gray-500">Include the reason, project, date range, and exact time details so your manager knows what to review.</p>
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-medium text-gray-600">Request type or reason</label>
+            <input
+              type="text"
+              value={manualRequestType}
+              onChange={(event) => setManualRequestType(event.target.value)}
+              placeholder="Type the request, for example: punch in not working"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
           <div>
             <label className="text-xs font-medium text-gray-600">Project</label>
             <select
-              value={manualProjectId}
-              onChange={(event) => setManualProjectId(event.target.value ? Number(event.target.value) : "")}
+              value={manualRequestProjectId}
+              onChange={(event) => setManualRequestProjectId(event.target.value ? Number(event.target.value) : "")}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">Select project</option>
               {projects.map((project) => (
-                <option key={project.id} value={project.id}>{project.name} ({project.code})</option>
+                <option key={project.id} value={project.id}>
+                  {project.name} ({project.code})
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600">Description (optional)</label>
+            <label className="text-xs font-medium text-gray-600">Start date and time</label>
             <input
-              value={manualDescription}
-              onChange={(event) => setManualDescription(event.target.value)}
-              placeholder="What did you work on?"
+              type="datetime-local"
+              value={manualRequestStartDateTime}
+              onChange={(event) => setManualRequestStartDateTime(event.target.value)}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600">Date</label>
+            <label className="text-xs font-medium text-gray-600">End date and time</label>
             <input
-              type="date"
-              value={manualDate}
-              onChange={(event) => setManualDate(event.target.value)}
-              max={getDateValueForTimeZone(manualTimeZone)}
+              type="datetime-local"
+              value={manualRequestEndDateTime}
+              onChange={(event) => setManualRequestEndDateTime(event.target.value)}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
-          <div className="grid grid-cols-1 gap-3 md:col-span-2 md:grid-cols-[160px_160px_180px]">
-            <div>
-              <label className="text-xs font-medium text-gray-600">Start time</label>
-              <div className="mt-1 grid grid-cols-[80px_72px] gap-2">
-                <input
-                  type="text"
-                  value={manualStart}
-                  onChange={(event) => setManualStart(formatTwelveHourInput(event.target.value))}
-                  placeholder="hh:mm"
-                  className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <select
-                  value={manualStartMeridiem}
-                  onChange={(event) => setManualStartMeridiem(event.target.value)}
-                  className="w-[72px] rounded-lg border border-gray-300 px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="AM">AM</option>
-                  <option value="PM">PM</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600">End time</label>
-              <div className="mt-1 grid grid-cols-[80px_72px] gap-2">
-                <input
-                  type="text"
-                  value={manualEnd}
-                  onChange={(event) => setManualEnd(formatTwelveHourInput(event.target.value))}
-                  placeholder="hh:mm"
-                  className="w-20 rounded-lg border border-gray-300 px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <select
-                  value={manualEndMeridiem}
-                  onChange={(event) => setManualEndMeridiem(event.target.value)}
-                  className="w-[72px] rounded-lg border border-gray-300 px-2 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="AM">AM</option>
-                  <option value="PM">PM</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-600">Time zone</label>
-              <select
-                value={manualTimeZone}
-                onChange={(event) => {
-                  setManualTimeZone(event.target.value);
-                  setManualDate((currentDate) => {
-                    const maxDate = getDateValueForTimeZone(event.target.value);
-                    return currentDate > maxDate ? maxDate : currentDate;
-                  });
-                }}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                {timeZoneOptionGroups.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.options.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
+          <div className="md:col-span-2">
+            <label className="text-xs font-medium text-gray-600">Employee details</label>
+            <textarea
+              value={manualRequestComment}
+              onChange={(event) => setManualRequestComment(event.target.value)}
+              placeholder="Explain what happened and any details your manager should know."
+              className="mt-1 min-h-[110px] w-full rounded-lg border border-gray-300 px-3 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
           </div>
         </div>
 
         {manualError ? <p className="mt-2 text-xs text-rose-600">{manualError}</p> : null}
         <button
           type="button"
-          onClick={handleManualEntry}
+          onClick={handleManualEntryRequest}
           disabled={busy}
-          className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-gray-800 border border-gray-300 bg-white hover:bg-gray-50 transition disabled:opacity-60"
+          className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-2 text-sm font-semibold text-gray-800 transition hover:bg-gray-50 disabled:opacity-60"
         >
-          Add Manual Entry
+          Submit Request
         </button>
+
+        <div className="mt-6 space-y-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Recent Requests</h4>
+          {manualRequests.slice(0, 3).map((request) => (
+            <div key={request.id} className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-gray-900">
+                  {request.requestType.replaceAll("_", " ")} - {request.requestDate}
+                </p>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone[request.status] || "bg-gray-200 text-gray-700"}`}>
+                  {request.status}
+                </span>
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">{request.comment}</p>
+              {request.managerComment ? (
+                <p className="mt-2 text-xs text-gray-500">Manager comment: {request.managerComment}</p>
+              ) : null}
+            </div>
+          ))}
+          {manualRequests.length === 0 ? <p className="text-sm text-gray-500">No manual entry requests yet.</p> : null}
+        </div>
       </div>
     </section>
   );

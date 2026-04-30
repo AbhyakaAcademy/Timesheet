@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
 from timesheets.models import (
+    ManualEntryRequest,
+    ManualEntryRequestStatus,
     Project,
     ShiftType,
     TimeEntry,
@@ -73,6 +75,63 @@ class ManualTimeEntrySerializer(serializers.Serializer):
         if attrs["end_time"] <= attrs["start_time"]:
             raise serializers.ValidationError("end_time must be after start_time.")
         return attrs
+
+
+class ManagerManualTimeEntrySerializer(ManualTimeEntrySerializer):
+    employee_id = serializers.IntegerField()
+
+
+class ManualEntryRequestCreateSerializer(serializers.Serializer):
+    request_type = serializers.CharField(max_length=120)
+    request_date = serializers.DateField()
+    comment = serializers.CharField(max_length=1000)
+
+
+class ManualEntryRequestDecisionSerializer(ManualTimeEntrySerializer):
+    manager_comment = serializers.CharField(required=False, allow_blank=True, max_length=255)
+
+
+class ManualEntryRequestRejectSerializer(serializers.Serializer):
+    manager_comment = serializers.CharField(max_length=255)
+
+
+class ManualEntryRequestSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    employee_username = serializers.CharField(source="employee.username", read_only=True)
+    resolved_by_name = serializers.SerializerMethodField()
+    approved_entry_detail = TimeEntrySerializer(source="approved_entry", read_only=True)
+
+    class Meta:
+        model = ManualEntryRequest
+        fields = (
+            "id",
+            "employee",
+            "employee_name",
+            "employee_username",
+            "request_type",
+            "request_date",
+            "comment",
+            "status",
+            "manager_comment",
+            "resolved_by",
+            "resolved_by_name",
+            "approved_entry",
+            "approved_entry_detail",
+            "resolved_at",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_employee_name(self, obj):
+        full_name = obj.employee.get_full_name().strip()
+        return full_name or obj.employee.username
+
+    def get_resolved_by_name(self, obj):
+        if not obj.resolved_by:
+            return ""
+        full_name = obj.resolved_by.get_full_name().strip()
+        return full_name or obj.resolved_by.username
 
 
 class TimesheetLineSerializer(serializers.ModelSerializer):

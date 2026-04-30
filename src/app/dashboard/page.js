@@ -249,7 +249,13 @@ const subscriptionPlans = [
   },
 ];
 
-const settingTabs = ["General Settings", "Accounts", "Billing Rates", "Overtime Rules", "Branding"];
+const settingTabs = [
+  "General Settings",
+  // "Accounts",
+  "Billing Rates",
+  "Overtime Rules",
+  "Branding",
+];
 
 const initialBillingRates = [
   { id: 1, role: "Software Engineer", project: "All Projects", rate: "INR 2,500/hour", type: "Hourly" },
@@ -1662,7 +1668,15 @@ function SettingsPage({
 
       <section className="mt-7 rounded-xl border border-slate-300 bg-white p-8">
         {activeTab === "General Settings" ? <GeneralSettings settings={settings} onSave={onSave} /> : null}
-        {activeTab === "Accounts" ? <AccountsSettings settings={settings} currentPlan={subscriptionPlan} billing={subscriptionBilling} onAction={onAction} onSave={saveAccountSettings} /> : null}
+        {/* {activeTab === "Accounts" ? (
+          <AccountsSettings
+            settings={settings}
+            currentPlan={subscriptionPlan}
+            billing={subscriptionBilling}
+            onAction={onAction}
+            onSave={saveAccountSettings}
+          />
+        ) : null} */}
         {activeTab === "Billing Rates" ? (
           <BillingRatesSettings
             rates={billingRates}
@@ -2107,6 +2121,9 @@ function BillingRatesSettings({ rates, onAdd, onEdit, onDelete }) {
         <p className="font-semibold text-blue-900">Billing Rates Information</p>
         <p className="mt-2 text-sm text-blue-800">Billing rates are used to calculate project costs and generate client invoices.</p>
         <p className="mt-1 text-sm text-blue-800">You can define different rates for the same role across different projects.</p>
+        <p className="mt-1 text-sm text-blue-800">Keep rates updated whenever project pricing or employee roles change.</p>
+        <p className="mt-1 text-sm text-blue-800">Use project-specific rates when certain clients or engagements need separate billing rules.</p>
+        <p className="mt-1 text-sm text-blue-800">Consistent rate setup helps keep invoice totals and revenue reporting accurate.</p>
       </div>
     </div>
   );
@@ -2115,27 +2132,27 @@ function BillingRatesSettings({ rates, onAdd, onEdit, onDelete }) {
 function OvertimeRulesSettings({ rules, onAdd, onEdit, onDelete, onToggle }) {
   return (
     <div>
-      <div className="mb-8 flex items-start justify-between gap-4">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-2xl font-bold">Overtime Rules Configuration</h3>
-          <p className="mt-3 text-base text-slate-600">Define overtime eligibility, thresholds, and compensation multipliers</p>
+          <h3 className="text-xl font-bold">Overtime Rules Configuration</h3>
+          <p className="mt-2 text-sm text-slate-600">Define overtime eligibility, thresholds, and compensation multipliers</p>
         </div>
         <PurpleButton onClick={onAdd}>+ Add Overtime Rule</PurpleButton>
       </div>
 
-      <div className="space-y-5">
+      <div className="space-y-4">
         {rules.map((rule) => (
-          <section key={rule.id} className="rounded-xl border border-slate-300 bg-white px-7 py-7">
-            <div className="flex items-start justify-between gap-6">
+          <section key={rule.id} className="rounded-xl border border-slate-300 bg-white px-5 py-5">
+            <div className="flex items-start justify-between gap-5">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-4">
-                  <h4 className="text-2xl font-bold">{rule.name}</h4>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h4 className="text-xl font-bold">{rule.name}</h4>
                   <StatusBadge value={rule.active ? "Active" : "Inactive"} />
                 </div>
-                <div className="mt-6 grid gap-8 md:grid-cols-3">
-                  <InfoBlock label="Threshold (hours/week)" value={rule.threshold} large />
-                  <InfoBlock label="Pay Multiplier" value={rule.multiplier} large />
-                  <InfoBlock label="Applies To" value={rule.appliesTo} large />
+                <div className="mt-4 grid gap-6 md:grid-cols-3">
+                  <InfoBlock label="Threshold (hours/week)" value={rule.threshold} />
+                  <InfoBlock label="Pay Multiplier" value={rule.multiplier} />
+                  <InfoBlock label="Applies To" value={rule.appliesTo} />
                 </div>
               </div>
               <div className="flex shrink-0 gap-2">
@@ -2148,9 +2165,12 @@ function OvertimeRulesSettings({ rules, onAdd, onEdit, onDelete, onToggle }) {
         ))}
       </div>
 
-      <div className="mt-7 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+      <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
         <p className="font-semibold text-amber-900">Overtime Rules Information</p>
         <p className="mt-2 text-sm text-amber-800">Rules determine when overtime applies and which multiplier should be used for pay and reporting.</p>
+        <p className="mt-1 text-sm text-amber-800">You can create separate rules for standard weekly overtime, weekends, and holidays.</p>
+        <p className="mt-1 text-sm text-amber-800">Clear thresholds help managers review extra hours more consistently across teams.</p>
+        <p className="mt-1 text-sm text-amber-800">Accurate overtime settings also improve payroll calculations and compliance reporting.</p>
       </div>
     </div>
   );

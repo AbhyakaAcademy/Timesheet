@@ -19,8 +19,11 @@ from notifications.models import Notification
 from tenants.models import Department
 from tenants.serializers import TenantUserSerializer
 from timesheets.models import (
+    ManualEntryRequest,
+    ManualEntryRequestStatus,
     ApprovalAction,
     Project,
+    ShiftType,
     TeamMembership,
     TimeEntry,
     TimeEntrySource,
@@ -33,7 +36,12 @@ from timesheets.models import (
 from timesheets.serializers import (
     ApprovalActionSerializer,
     EmployeeDashboardSummarySerializer,
+    ManualEntryRequestCreateSerializer,
+    ManualEntryRequestDecisionSerializer,
+    ManualEntryRequestRejectSerializer,
+    ManualEntryRequestSerializer,
     ManualTimeEntrySerializer,
+    ManagerManualTimeEntrySerializer,
     ManagerTimesheetListSerializer,
     ProjectSerializer,
     PunchInSerializer,
@@ -71,6 +79,13 @@ def notify_employee_managers(employee, title, message):
             title=title,
             message=message,
         )
+
+
+def get_managers_for_employee(employee):
+    return [
+        member.manager
+        for member in TeamMembership.objects.select_related("manager").filter(employee=employee)
+    ]
 
 
 def _split_name(value):
@@ -133,6 +148,59 @@ def _create_manager_employee(payload, manager):
         invited_by_name=manager.get_full_name() or manager.username,
     )
     return user, delivery
+
+
+def _get_or_create_manager_target_timesheet_for_date(employee, target_date):
+    week_start = target_date - timedelta(days=target_date.weekday())
+    existing_timesheets = list(
+        Timesheet.objects.filter(employee=employee, week_start=week_start).order_by("-created_at")
+    )
+    for preferred_status in [TimesheetStatus.SUBMITTED, TimesheetStatus.APPROVED, TimesheetStatus.REJECTED, TimesheetStatus.DRAFT]:
+        matching = next((sheet for sheet in existing_timesheets if sheet.status == preferred_status), None)
+        if matching:
+            return matching
+
+    try:
+        return Timesheet.objects.create(
+            employee=employee,
+            week_start=week_start,
+            status=TimesheetStatus.DRAFT,
+        )
+    except IntegrityError:
+        existing = (
+            Timesheet.objects.filter(employee=employee, week_start=week_start, status=TimesheetStatus.DRAFT)
+            .order_by("-created_at")
+            .first()
+        )
+        if existing:
+            return existing
+        return Timesheet.objects.filter(employee=employee, week_start=week_start).order_by("-created_at").first()
+
+
+def _create_manual_entry_and_timesheet_line(*, employee, project, start_time, end_time, note, description):
+    entry = TimeEntry.objects.create(
+        employee=employee,
+        project=project,
+        source=TimeEntrySource.MANUAL,
+        start_time=start_time,
+        end_time=end_time,
+        note=note or "",
+    )
+    entry.calculate_duration()
+    entry.save(update_fields=["duration_minutes", "updated_at"])
+
+    timesheet = _get_or_create_manager_target_timesheet_for_date(employee, start_time.date())
+    hours = max(round(entry.duration_minutes / 60, 2), 0.01)
+    TimesheetLine.objects.create(
+        timesheet=timesheet,
+        date=start_time.date(),
+        project=project,
+        description=description or note or "Manager added manual entry",
+        hours=hours,
+        shift=ShiftType.DAY,
+        time_entry=entry,
+    )
+    return entry
 
 
 class EmployeeDashboardSummaryView(APIView):
@@ -230,31 +298,60 @@ class PunchOutView(APIView):
 
 
 class ManualTimeEntryView(APIView):
-    permission_classes = [IsAuthenticated, IsEmployee]
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
 
     def post(self, request):
-        serializer = ManualTimeEntrySerializer(data=request.data)
+        serializer = ManagerManualTimeEntrySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        employee = get_object_or_404(User, id=serializer.validated_data["employee_id"], role=UserRole.EMPLOYEE)
+        if request.user.role == UserRole.MANAGER and not manager_has_employee(request.user, employee.id):
+            return Response({"detail": "You do not manage this employee."}, status=status.HTTP_403_FORBIDDEN)
         project = Project.objects.get(id=serializer.validated_data["project_id"])
-        entry = TimeEntry.objects.create(
-            employee=request.user,
+        entry = _create_manual_entry_and_timesheet_line(
+            employee=employee,
             project=project,
-            source=TimeEntrySource.MANUAL,
             start_time=serializer.validated_data["start_time"],
             end_time=serializer.validated_data["end_time"],
             note=serializer.validated_data.get("note", ""),
+            description=serializer.validated_data.get("note", "") or "Manager added manual entry",
         )
-        entry.calculate_duration()
-        entry.save(update_fields=["duration_minutes", "updated_at"])
-        notify_employee_managers(
-            request.user,
-            "Manual time entry added",
-            (
-                f"{employee_display_name(request.user)} added a manual time entry for "
-                f"{project.name} ({entry.duration_minutes} minutes)."
+        Notification.objects.create(
+            recipient=employee,
+            title="Manual time entry added",
+            message=(
+                f"Your manager added a manual time entry for {project.name} "
+                f"({entry.duration_minutes} minutes)."
             ),
         )
         return Response(TimeEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
+
+
+class EmployeeManualEntryRequestsView(APIView):
+    permission_classes = [IsAuthenticated, IsEmployee]
+
+    def get(self, request):
+        queryset = ManualEntryRequest.objects.filter(employee=request.user)
+        return Response(ManualEntryRequestSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        serializer = ManualEntryRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        manual_request = ManualEntryRequest.objects.create(
+            employee=request.user,
+            request_type=serializer.validated_data["request_type"].strip(),
+            request_date=serializer.validated_data["request_date"],
+            comment=serializer.validated_data["comment"].strip(),
+        )
+        display_date = manual_request.request_date.strftime("%b %d, %Y")
+        notify_employee_managers(
+            request.user,
+            "Manual entry request submitted",
+            (
+                f"{employee_display_name(request.user)} submitted a {manual_request.request_type.lower()} "
+                f"request for {display_date}."
+            ),
+        )
+        return Response(ManualEntryRequestSerializer(manual_request).data, status=status.HTTP_201_CREATED)
 
 
 class CurrentTimesheetView(APIView):
@@ -268,6 +365,10 @@ class CurrentTimesheetView(APIView):
         ).order_by("-created_at")
 
         timesheet = week_timesheets.filter(status=TimesheetStatus.DRAFT).first()
+        if timesheet is not None and not timesheet.lines.exists():
+            fallback_timesheet = week_timesheets.exclude(id=timesheet.id).first()
+            if fallback_timesheet is not None:
+                timesheet = fallback_timesheet
         if timesheet is None:
             timesheet = week_timesheets.first()
 
@@ -529,6 +630,89 @@ class ManagerEmployeesView(APIView):
         return Response(payload, status=status.HTTP_201_CREATED)
 
 
+class ManagerManualEntryRequestListView(APIView):
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+
+    def get(self, request):
+        queryset = ManualEntryRequest.objects.select_related("employee", "resolved_by", "approved_entry")
+        status_param = (request.query_params.get("status") or "pending").upper()
+        if status_param in ManualEntryRequestStatus.values:
+            queryset = queryset.filter(status=status_param)
+
+        if request.user.role == UserRole.MANAGER:
+            employee_ids = TeamMembership.objects.filter(manager=request.user).values_list("employee_id", flat=True)
+            queryset = queryset.filter(employee_id__in=employee_ids)
+        return Response(ManualEntryRequestSerializer(queryset, many=True).data)
+
+
+class ManagerManualEntryRequestApproveView(APIView):
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+
+    def post(self, request, request_id):
+        serializer = ManualEntryRequestDecisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        manual_request = get_object_or_404(ManualEntryRequest.objects.select_related("employee"), id=request_id)
+        if request.user.role == UserRole.MANAGER and not manager_has_employee(request.user, manual_request.employee_id):
+            return Response({"detail": "You do not manage this employee."}, status=status.HTTP_403_FORBIDDEN)
+        if manual_request.status != ManualEntryRequestStatus.PENDING:
+            return Response({"detail": "This request has already been resolved."}, status=status.HTTP_400_BAD_REQUEST)
+
+        project = Project.objects.get(id=serializer.validated_data["project_id"])
+        entry = _create_manual_entry_and_timesheet_line(
+            employee=manual_request.employee,
+            project=project,
+            start_time=serializer.validated_data["start_time"],
+            end_time=serializer.validated_data["end_time"],
+            note=serializer.validated_data.get("note", ""),
+            description=serializer.validated_data.get("note", "") or manual_request.comment,
+        )
+        manual_request.status = ManualEntryRequestStatus.APPROVED
+        manual_request.manager_comment = serializer.validated_data.get("manager_comment", "")
+        manual_request.resolved_by = request.user
+        manual_request.approved_entry = entry
+        manual_request.resolved_at = timezone.now()
+        manual_request.save(update_fields=["status", "manager_comment", "resolved_by", "approved_entry", "resolved_at", "updated_at"])
+
+        Notification.objects.create(
+            recipient=manual_request.employee,
+            title="Manual entry request approved",
+            message=(
+                f"Your manager approved the missed punch request for {manual_request.request_date} "
+                f"and added a manual time entry."
+            ),
+        )
+        return Response(ManualEntryRequestSerializer(manual_request).data)
+
+
+class ManagerManualEntryRequestRejectView(APIView):
+    permission_classes = [IsAuthenticated, IsManagerOrAdmin]
+
+    def post(self, request, request_id):
+        serializer = ManualEntryRequestRejectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        manual_request = get_object_or_404(ManualEntryRequest.objects.select_related("employee"), id=request_id)
+        if request.user.role == UserRole.MANAGER and not manager_has_employee(request.user, manual_request.employee_id):
+            return Response({"detail": "You do not manage this employee."}, status=status.HTTP_403_FORBIDDEN)
+        if manual_request.status != ManualEntryRequestStatus.PENDING:
+            return Response({"detail": "This request has already been resolved."}, status=status.HTTP_400_BAD_REQUEST)
+
+        manual_request.status = ManualEntryRequestStatus.REJECTED
+        manual_request.manager_comment = serializer.validated_data["manager_comment"].strip()
+        manual_request.resolved_by = request.user
+        manual_request.resolved_at = timezone.now()
+        manual_request.save(update_fields=["status", "manager_comment", "resolved_by", "resolved_at", "updated_at"])
+
+        Notification.objects.create(
+            recipient=manual_request.employee,
+            title="Manual entry request rejected",
+            message=(
+                f"Your manager rejected the missed punch request for {manual_request.request_date}. "
+                f"Comment: {manual_request.manager_comment}"
+            ),
+        )
+        return Response(ManualEntryRequestSerializer(manual_request).data)
+
+
 class ManagerTimesheetListView(APIView):
     permission_classes = [IsAuthenticated, IsManagerOrAdmin]
 
@@ -644,4 +828,3 @@ class ApproveTimesheetView(ManagerTimesheetActionView):
 
 class RejectTimesheetView(ManagerTimesheetActionView):
     action = ApprovalAction.REJECTED
-    ProjectSerializer,

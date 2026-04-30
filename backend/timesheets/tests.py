@@ -9,7 +9,7 @@ from rest_framework.test import APITestCase
 
 from notifications.models import Notification
 from tenants.models import TenantOrganization
-from timesheets.models import Project, TeamMembership, TimeEntry, TimeEntrySource, Timesheet, TimesheetLine
+from timesheets.models import ManualEntryRequest, ManualEntryRequestStatus, Project, TeamMembership, TimeEntry, TimeEntrySource, Timesheet, TimesheetLine
 from timesheets.views import week_start_for
 
 
@@ -74,14 +74,13 @@ class ManagerEmployeeNotificationTests(APITestCase):
             ).exists()
         )
 
-    def test_manual_time_entry_notifies_manager(self):
+    def test_employee_manual_entry_request_notifies_manager(self):
         response = self.client.post(
-            reverse("manual_time_entry"),
+            reverse("employee_manual_entry_requests"),
             {
-                "project_id": self.project.id,
-                "start_time": (timezone.now() - timedelta(hours=2)).isoformat(),
-                "end_time": timezone.now().isoformat(),
-                "note": "Manual work",
+                "request_type": "Punch in not working",
+                "request_date": timezone.localdate().isoformat(),
+                "comment": "Project: Project Alpha (PA)\nStart: Apr 29, 2026, 9:00 AM\nEnd: Apr 29, 2026, 5:00 PM\nEmployee details: Scanner was offline.",
             },
             format="json",
         )
@@ -90,8 +89,72 @@ class ManagerEmployeeNotificationTests(APITestCase):
         self.assertTrue(
             Notification.objects.filter(
                 recipient=self.manager,
-                title="Manual time entry added",
-                message__contains="Employee One added a manual time entry for Project Alpha",
+                title="Manual entry request submitted",
+                message__contains="Employee One submitted a punch in not working request",
+            ).exists()
+        )
+
+    def test_employee_cannot_create_manual_entry_directly(self):
+        response = self.client.post(
+            reverse("manual_time_entry"),
+            {
+                "employee_id": self.employee.id,
+                "project_id": self.project.id,
+                "start_time": (timezone.now() - timedelta(hours=2)).isoformat(),
+                "end_time": timezone.now().isoformat(),
+                "note": "Manual work",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_manager_can_approve_manual_entry_request_and_create_time_entry(self):
+        manual_request = ManualEntryRequest.objects.create(
+            employee=self.employee,
+            request_type="MISSED_BOTH",
+            request_date=timezone.localdate(),
+            comment="Laptop battery died and I missed both punches.",
+        )
+
+        self.client.force_authenticate(self.manager)
+        start_time = timezone.now() - timedelta(hours=2)
+        end_time = timezone.now() - timedelta(hours=1)
+        response = self.client.post(
+            reverse("manager_manual_entry_request_approve", args=[manual_request.id]),
+            {
+                "project_id": self.project.id,
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "note": "Approved manager backfill",
+                "manager_comment": "Approved after reviewing context.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        manual_request.refresh_from_db()
+        self.assertEqual(manual_request.status, ManualEntryRequestStatus.APPROVED)
+        self.assertIsNotNone(manual_request.approved_entry)
+        self.assertTrue(
+            TimeEntry.objects.filter(
+                employee=self.employee,
+                project=self.project,
+                source=TimeEntrySource.MANUAL,
+                note="Approved manager backfill",
+            ).exists()
+        )
+        self.assertTrue(
+            TimesheetLine.objects.filter(
+                timesheet__employee=self.employee,
+                project=self.project,
+                time_entry=manual_request.approved_entry,
+            ).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(
+                recipient=self.employee,
+                title="Manual entry request approved",
             ).exists()
         )
 
