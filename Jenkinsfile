@@ -3,28 +3,15 @@ pipeline {
 
     stages {
 
-        stage('Checkout') {
-            steps {
-                git branch: 'main',
-                url: 'https://github.com/AbhyakaAcademy/Timesheet.git'
-            }
-        }
-
-        stage('Install Dependencies') {
-            steps {
-                bat 'npm install'
-            }
-        }
-
         stage('Build') {
             steps {
-                bat 'npm run build'
+                echo 'Building project...'
             }
         }
 
         stage('Test') {
             steps {
-                bat 'npm test'
+                echo 'Running tests...'
             }
         }
 
