@@ -223,6 +223,7 @@ function CardLogoStrip({ brands, activeBrand }) {
 export default function SubscriptionPage() {
   const router = useRouter();
   const [submitError, setSubmitError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [billing, setBilling] = useState("annual");
   const [region, setRegion] = useState("IN");
@@ -311,6 +312,66 @@ export default function SubscriptionPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const nextErrors = {};
+
+    if (!form.companyName.trim()) nextErrors.companyName = "Company name is required.";
+    if (!form.users.trim()) nextErrors.users = "Number of users is required.";
+    if (!form.fullName.trim()) nextErrors.fullName = "Full name is required.";
+    if (!form.email.trim()) {
+      nextErrors.email = "Email address is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      nextErrors.email = "Enter a valid email address.";
+    }
+    if (!form.phone.trim()) nextErrors.phone = "Phone number is required.";
+    if (!form.addressLine1.trim()) nextErrors.addressLine1 = "House address is required.";
+    if (!form.city.trim()) nextErrors.city = "City is required.";
+    if (!form.state.trim()) nextErrors.state = "State or province is required.";
+    if (!form.postalCode.trim()) nextErrors.postalCode = "Postal code is required.";
+    if (!form.country.trim()) nextErrors.country = "Country is required.";
+    if (!form.paymentMethod.trim()) nextErrors.paymentMethod = "Payment method is required.";
+
+    if (form.paymentMethod === "Credit/Debit Card") {
+      if (!form.cardholderName.trim()) nextErrors.cardholderName = "Name on card is required.";
+      if (!form.cardNumber.trim()) nextErrors.cardNumber = "Card number is required.";
+      if (!form.expiry.trim()) nextErrors.expiry = "Expiry date is required.";
+      if (!form.cvv.trim()) nextErrors.cvv = "CVV is required.";
+    }
+
+    if (form.paymentMethod === "Google Pay" && !form.googlePayId.trim()) {
+      nextErrors.googlePayId = "Google Pay details are required.";
+    }
+
+    if (form.paymentMethod === "PayPal") {
+      if (!form.paypalEmail.trim()) {
+        nextErrors.paypalEmail = "PayPal email is required.";
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.paypalEmail.trim())) {
+        nextErrors.paypalEmail = "Enter a valid PayPal email.";
+      }
+    }
+
+    if (form.paymentMethod === "UPI" && !form.upiId.trim()) {
+      nextErrors.upiId = "UPI ID is required.";
+    }
+
+    if (form.paymentMethod === "Net Banking") {
+      if (!form.bankName.trim()) nextErrors.bankName = "Bank name is required.";
+      if (!form.accountHolderName.trim()) nextErrors.accountHolderName = "Account holder name is required.";
+      if (form.bankName === "Other Bank" && !form.otherBankName.trim()) nextErrors.otherBankName = "Other bank name is required.";
+      if (form.bankName === "Other Bank" && !form.bankRoutingCode.trim()) nextErrors.bankRoutingCode = `${routingLabel} is required.`;
+    }
+
+    if (form.paymentMethod === "Bank Transfer") {
+      if (!form.transferBankName.trim()) nextErrors.transferBankName = "Transfer bank name is required.";
+      if (!form.transferReference.trim()) nextErrors.transferReference = "Transaction reference is required.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors(nextErrors);
+      setSubmitError("");
+      return;
+    }
+
+    setFieldErrors({});
     setSubmitError("");
     setIsSubmitting(true);
 
@@ -357,6 +418,13 @@ export default function SubscriptionPage() {
   };
 
   const handleChange = (key, value) => {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const nextErrors = { ...prev };
+      delete nextErrors[key];
+      return nextErrors;
+    });
+
     if (key === "paymentMethod") {
       setForm((prev) => ({
         ...prev,
@@ -380,6 +448,7 @@ export default function SubscriptionPage() {
   const handleRegionChange = (nextRegion) => {
     const nextMethods = paymentConfigByRegion[nextRegion].methods;
     setRegion(nextRegion);
+    setFieldErrors({});
     setForm((prev) => ({
       ...prev,
       paymentMethod: nextMethods.some((method) => method.name === prev.paymentMethod)
@@ -416,6 +485,10 @@ export default function SubscriptionPage() {
     [form.postalCode, form.country].filter(Boolean).join(" "),
   ].filter(Boolean);
   const rememberPaymentChecked = isCardPayment ? true : form.rememberPayment;
+  const getInputClass = (field, extra = "") =>
+    `${fieldErrors[field] ? "border-rose-500 bg-rose-50 text-rose-900" : "border-gray-300"} ${extra}`.trim();
+  const renderFieldError = (field) =>
+    fieldErrors[field] ? <p className="mt-2 text-sm font-medium text-rose-600">{fieldErrors[field]}</p> : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
@@ -543,7 +616,7 @@ export default function SubscriptionPage() {
           })}
         </div>
 
-        <form onSubmit={handleSubmit} className="max-w-[900px] mx-auto bg-white rounded-2xl shadow-sm p-6 border border-gray-200">
+        <form onSubmit={handleSubmit} noValidate className="max-w-[900px] mx-auto bg-white rounded-2xl shadow-sm p-6 border border-gray-200">
           <h3 className="text-xl font-semibold text-gray-900 mb-5">Complete Your Subscription</h3>
 
           <div className="mb-5">
@@ -555,18 +628,20 @@ export default function SubscriptionPage() {
               <div>
                 <label className="block text-gray-700 mb-2">Company Name <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  className={getInputClass("companyName", "w-full rounded-lg border px-3 py-2.5")}
                   value={form.companyName}
                   onChange={(e) => handleChange("companyName", e.target.value)}
                 />
+                {renderFieldError("companyName")}
               </div>
               <div>
                 <label className="block text-gray-700 mb-2">Number of Users <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  className={getInputClass("users", "w-full rounded-lg border px-3 py-2.5")}
                   value={form.users}
                   onChange={(e) => handleChange("users", e.target.value)}
                 />
+                {renderFieldError("users")}
               </div>
             </div>
           </div>
@@ -580,21 +655,23 @@ export default function SubscriptionPage() {
               <div>
                 <label className="block text-gray-700 mb-2">Full Name <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  className={getInputClass("fullName", "w-full rounded-lg border px-3 py-2.5")}
                   value={form.fullName}
                   onChange={(e) => handleChange("fullName", e.target.value)}
                 />
+                {renderFieldError("fullName")}
               </div>
               <div>
                 <label className="block text-gray-700 mb-2">Email Address <span className="text-red-600">*</span></label>
                 <div className="relative">
                   <Mail className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    className="w-full border border-gray-300 rounded-lg pl-10 pr-3 py-2.5"
+                    className={getInputClass("email", "w-full rounded-lg border pl-10 pr-3 py-2.5")}
                     value={form.email}
                     onChange={(e) => handleChange("email", e.target.value)}
                   />
                 </div>
+                {renderFieldError("email")}
               </div>
             </div>
             <div>
@@ -602,11 +679,12 @@ export default function SubscriptionPage() {
               <div className="relative">
                 <Phone className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
-                  className="w-full border border-gray-300 rounded-lg pl-10 pr-3 py-2.5"
+                  className={getInputClass("phone", "w-full rounded-lg border pl-10 pr-3 py-2.5")}
                   value={form.phone}
                   onChange={(e) => handleChange("phone", e.target.value)}
                 />
               </div>
+              {renderFieldError("phone")}
             </div>
           </div>
 
@@ -619,12 +697,12 @@ export default function SubscriptionPage() {
               <div className="md:col-span-2">
                 <label className="block text-gray-700 mb-2">House Address <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  className={getInputClass("addressLine1", "w-full rounded-lg border px-3 py-2.5")}
                   value={form.addressLine1}
                   placeholder="Street address, house or apartment number"
-                  required
                   onChange={(e) => handleChange("addressLine1", e.target.value)}
                 />
+                {renderFieldError("addressLine1")}
               </div>
               <div className="md:col-span-2">
                 <label className="block text-gray-700 mb-2">Address Line 2</label>
@@ -638,38 +716,38 @@ export default function SubscriptionPage() {
               <div>
                 <label className="block text-gray-700 mb-2">City <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  className={getInputClass("city", "w-full rounded-lg border px-3 py-2.5")}
                   value={form.city}
-                  required
                   onChange={(e) => handleChange("city", e.target.value)}
                 />
+                {renderFieldError("city")}
               </div>
               <div>
                 <label className="block text-gray-700 mb-2">State / Province <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  className={getInputClass("state", "w-full rounded-lg border px-3 py-2.5")}
                   value={form.state}
-                  required
                   onChange={(e) => handleChange("state", e.target.value)}
                 />
+                {renderFieldError("state")}
               </div>
               <div>
                 <label className="block text-gray-700 mb-2">Postal Code <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  className={getInputClass("postalCode", "w-full rounded-lg border px-3 py-2.5")}
                   value={form.postalCode}
-                  required
                   onChange={(e) => handleChange("postalCode", e.target.value)}
                 />
+                {renderFieldError("postalCode")}
               </div>
               <div>
                 <label className="block text-gray-700 mb-2">Country <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  className={getInputClass("country", "w-full rounded-lg border px-3 py-2.5")}
                   value={form.country}
-                  required
                   onChange={(e) => handleChange("country", e.target.value)}
                 />
+                {renderFieldError("country")}
               </div>
             </div>
           </div>
@@ -682,9 +760,8 @@ export default function SubscriptionPage() {
             <div className="mb-4">
               <label className="block text-gray-700 mb-2">Select Payment Method <span className="text-red-600">*</span></label>
               <select
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                className={getInputClass("paymentMethod", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                 value={form.paymentMethod}
-                required
                 onChange={(e) => handleChange("paymentMethod", e.target.value)}
               >
                 {paymentConfig.methods.map((method) => (
@@ -693,30 +770,30 @@ export default function SubscriptionPage() {
                   </option>
                 ))}
               </select>
+              {renderFieldError("paymentMethod")}
             </div>
             {isCardPayment ? (
               <>
                 <div className="mb-4">
                   <label className="block text-gray-700 mb-2">Name on Card <span className="text-red-600">*</span></label>
                   <input
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                    className={getInputClass("cardholderName", "w-full rounded-lg border px-3 py-2.5")}
                     value={form.cardholderName}
                     autoComplete="cc-name"
                     placeholder="Name printed on card"
-                    required
                     onChange={(e) => handleChange("cardholderName", e.target.value)}
                   />
+                  {renderFieldError("cardholderName")}
                 </div>
                 <div className="mb-4">
                   <label className="block text-gray-700 mb-2">Card Number <span className="text-red-600">*</span></label>
                   <div className="relative">
                     <input
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 pr-60 text-base tracking-wide"
+                      className={getInputClass("cardNumber", "w-full rounded-lg border px-3 py-2.5 pr-60 text-base tracking-wide")}
                       value={form.cardNumber}
                       inputMode="numeric"
                       autoComplete="cc-number"
                       placeholder="1234 5678 9012 3456"
-                      required
                       onChange={(e) => handleCardNumberChange(e.target.value)}
                     />
                     <CardLogoStrip brands={paymentConfig.cardBrands} activeBrand={cardBrand} />
@@ -726,6 +803,7 @@ export default function SubscriptionPage() {
                       {cardBrand} is not available for {regionMeta[region].label}. Use {paymentConfig.cardBrands.join(", ")}.
                     </p>
                   ) : null}
+                  {renderFieldError("cardNumber")}
                 </div>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
@@ -733,29 +811,28 @@ export default function SubscriptionPage() {
                     <div className="relative">
                       <Calendar className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
-                        className="w-full border border-gray-300 rounded-lg pl-10 pr-3 py-2.5 text-base tracking-wide"
+                        className={getInputClass("expiry", "w-full rounded-lg border pl-10 pr-3 py-2.5 text-base tracking-wide")}
                         value={form.expiry}
                         inputMode="numeric"
                         autoComplete="cc-exp"
                         maxLength={7}
                         placeholder="MM / YY"
-                        required
                         onChange={(e) => handleExpiryChange(e.target.value)}
                       />
                     </div>
+                    {renderFieldError("expiry")}
                   </div>
                   <div>
                     <label className="block text-gray-700 mb-2">CVV <span className="text-red-600">*</span></label>
                     <div className="relative">
                       <input
                         type="password"
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 pr-16 text-base tracking-wide"
+                        className={getInputClass("cvv", "w-full rounded-lg border px-3 py-2.5 pr-16 text-base tracking-wide")}
                         value={form.cvv}
                         inputMode="numeric"
                         autoComplete="cc-csc"
                         maxLength={4}
                         placeholder="CVC"
-                        required
                         onChange={(e) => handleCvvChange(e.target.value)}
                       />
                       <div className="pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-end gap-1 text-gray-500">
@@ -763,6 +840,7 @@ export default function SubscriptionPage() {
                         <span className="mb-0.5 text-xs font-bold">123</span>
                       </div>
                     </div>
+                    {renderFieldError("cvv")}
                   </div>
                 </div>
               </>
@@ -774,12 +852,12 @@ export default function SubscriptionPage() {
                   {region === "IN" ? "Google Pay UPI ID or Mobile Number" : "Google Pay Email or Mobile Number"} <span className="text-red-600">*</span>
                 </label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                  className={getInputClass("googlePayId", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                   value={form.googlePayId}
                   placeholder={region === "IN" ? "name@okaxis or mobile number" : "email@example.com or mobile number"}
-                  required
                   onChange={(e) => handleChange("googlePayId", e.target.value)}
                 />
+                {renderFieldError("googlePayId")}
                 <p className="mt-2 text-sm text-slate-600">A secure Google Pay authorization request will be opened after you continue.</p>
               </div>
             ) : null}
@@ -789,12 +867,12 @@ export default function SubscriptionPage() {
                 <label className="block text-gray-700 mb-2">PayPal Email <span className="text-red-600">*</span></label>
                 <input
                   type="email"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                  className={getInputClass("paypalEmail", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                   value={form.paypalEmail}
                   placeholder="billing@example.com"
-                  required
                   onChange={(e) => handleChange("paypalEmail", e.target.value)}
                 />
+                {renderFieldError("paypalEmail")}
                 <p className="mt-2 text-sm text-slate-600">You will be redirected to PayPal to approve the subscription payment.</p>
               </div>
             ) : null}
@@ -803,12 +881,12 @@ export default function SubscriptionPage() {
               <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
                 <label className="block text-gray-700 mb-2">UPI ID <span className="text-red-600">*</span></label>
                 <input
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                  className={getInputClass("upiId", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                   value={form.upiId}
                   placeholder="name@bank"
-                  required
                   onChange={(e) => handleChange("upiId", e.target.value)}
                 />
+                {renderFieldError("upiId")}
                 <p className="mt-2 text-sm text-slate-600">A collect request will be sent to this UPI ID for approval.</p>
               </div>
             ) : null}
@@ -818,9 +896,8 @@ export default function SubscriptionPage() {
                 <div>
                   <label className="block text-gray-700 mb-2">Bank Name <span className="text-red-600">*</span></label>
                   <select
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                    className={getInputClass("bankName", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                     value={form.bankName}
-                    required
                     onChange={(e) => handleChange("bankName", e.target.value)}
                   >
                     <option value="">Select bank</option>
@@ -828,38 +905,39 @@ export default function SubscriptionPage() {
                       <option key={bank}>{bank}</option>
                     ))}
                   </select>
+                  {renderFieldError("bankName")}
                 </div>
                 <div>
                   <label className="block text-gray-700 mb-2">Account Holder Name <span className="text-red-600">*</span></label>
                   <input
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                    className={getInputClass("accountHolderName", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                     value={form.accountHolderName}
                     placeholder="Registered account holder"
-                    required
                     onChange={(e) => handleChange("accountHolderName", e.target.value)}
                   />
+                  {renderFieldError("accountHolderName")}
                 </div>
                 {form.bankName === "Other Bank" ? (
                   <>
                     <div>
                       <label className="block text-gray-700 mb-2">Other Bank Name <span className="text-red-600">*</span></label>
                       <input
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                        className={getInputClass("otherBankName", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                         value={form.otherBankName}
                         placeholder="Enter bank name"
-                        required
                         onChange={(e) => handleChange("otherBankName", e.target.value)}
                       />
+                      {renderFieldError("otherBankName")}
                     </div>
                     <div>
                       <label className="block text-gray-700 mb-2">{routingLabel} <span className="text-red-600">*</span></label>
                       <input
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                        className={getInputClass("bankRoutingCode", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                         value={form.bankRoutingCode}
                         placeholder={`Enter ${routingLabel.toLowerCase()}`}
-                        required
                         onChange={(e) => handleChange("bankRoutingCode", e.target.value)}
                       />
+                      {renderFieldError("bankRoutingCode")}
                     </div>
                   </>
                 ) : null}
@@ -871,22 +949,22 @@ export default function SubscriptionPage() {
                 <div>
                   <label className="block text-gray-700 mb-2">Transfer Bank Name <span className="text-red-600">*</span></label>
                   <input
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                    className={getInputClass("transferBankName", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                     value={form.transferBankName}
                     placeholder="Bank used for transfer"
-                    required
                     onChange={(e) => handleChange("transferBankName", e.target.value)}
                   />
+                  {renderFieldError("transferBankName")}
                 </div>
                 <div>
                   <label className="block text-gray-700 mb-2">Transaction Reference <span className="text-red-600">*</span></label>
                   <input
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 bg-white"
+                    className={getInputClass("transferReference", "w-full rounded-lg border px-3 py-2.5 bg-white")}
                     value={form.transferReference}
                     placeholder="UTR / reference number"
-                    required
                     onChange={(e) => handleChange("transferReference", e.target.value)}
                   />
+                  {renderFieldError("transferReference")}
                 </div>
                 <p className="md:col-span-2 text-sm text-slate-600">Use the reference number from your completed bank transfer so the subscription can be matched quickly.</p>
               </div>

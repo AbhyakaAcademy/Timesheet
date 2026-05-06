@@ -650,8 +650,8 @@ export default function DashboardPage() {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const payload = {
-      name: formData.get("name"),
-      email: formData.get("email"),
+      name: String(formData.get("name") || "").trim(),
+      email: String(formData.get("email") || "").trim(),
       role: normalizeRole(formData.get("role")),
       status: formData.get("status"),
       department: formData.get("department"),
@@ -744,16 +744,21 @@ export default function DashboardPage() {
       description,
       details: [description],
       applies_to: formData.get("appliesTo"),
-      enabled: true,
+      enabled: modal?.item?.enabled ?? true,
     };
 
     try {
-      const savedPolicy = await tenantApi.createPolicy(payload);
-      setPolicies((current) => [...current, normalizePolicy(savedPolicy)]);
+      const savedPolicy = modal?.item
+        ? await tenantApi.updatePolicy(modal.item.id, payload)
+        : await tenantApi.createPolicy(payload);
+      const nextPolicy = normalizePolicy(savedPolicy);
+      setPolicies((current) =>
+        modal?.item ? current.map((item) => (item.id === modal.item.id ? nextPolicy : item)) : [...current, nextPolicy]
+      );
       setModal(null);
-      showToast("Policy added");
+      showToast(modal?.item ? "Policy updated" : "Policy added");
     } catch (error) {
-      showToast(error.message || "Policy could not be added");
+      showToast(error.message || `Policy could not be ${modal?.item ? "updated" : "added"}`);
     }
   };
 
@@ -1012,7 +1017,12 @@ export default function DashboardPage() {
             />
           ) : null}
           {active === "Policies" ? (
-            <PoliciesPage policies={policies} onAdd={() => setModal({ type: "policy" })} onToggle={togglePolicy} />
+            <PoliciesPage
+              policies={policies}
+              onAdd={() => setModal({ type: "policy" })}
+              onEdit={(policy) => setModal({ type: "policy", item: policy })}
+              onToggle={togglePolicy}
+            />
           ) : null}
           {active === "Billing & Subscription" ? (
             <BillingPage
@@ -1052,7 +1062,7 @@ export default function DashboardPage() {
         {modal?.type === "department" ? <DepartmentModal item={modal.item} onClose={() => setModal(null)} onSubmit={saveDepartment} /> : null}
         {modal?.type === "billingRate" ? <BillingRateModal item={modal.item} onClose={() => setModal(null)} onSubmit={saveBillingRate} /> : null}
         {modal?.type === "overtimeRule" ? <OvertimeRuleModal item={modal.item} onClose={() => setModal(null)} onSubmit={saveOvertimeRule} /> : null}
-        {modal?.type === "policy" ? <PolicyModal onClose={() => setModal(null)} onSubmit={savePolicy} /> : null}
+        {modal?.type === "policy" ? <PolicyModal item={modal.item} onClose={() => setModal(null)} onSubmit={savePolicy} /> : null}
         {modal?.type === "profile" ? <ProfileModal profile={profile} onClose={() => setModal(null)} onSubmit={saveProfile} /> : null}
         {modal?.type === "plans" ? (
           <PlansModal
@@ -1332,7 +1342,7 @@ function DepartmentsPage({ departments, onAdd, onEdit, onDelete }) {
   );
 }
 
-function PoliciesPage({ policies, onAdd, onToggle }) {
+function PoliciesPage({ policies, onAdd, onEdit, onToggle }) {
   const [viewPolicy, setViewPolicy] = useState(null);
 
   return (
@@ -1356,6 +1366,7 @@ function PoliciesPage({ policies, onAdd, onToggle }) {
               </div>
             </div>
               <div className="flex shrink-0 items-center gap-4">
+                <OutlineButton onClick={() => onEdit(policy)}>Edit Policy</OutlineButton>
                 <OutlineButton onClick={() => setViewPolicy(viewPolicy?.id === policy.id ? null : policy)}>
                   {viewPolicy?.id === policy.id ? "Hide Policy" : "View Policy"}
                 </OutlineButton>
@@ -2220,6 +2231,46 @@ function SimpleSettings({ title, onAction }) {
 }
 
 function ProfileModal({ profile, onClose, onSubmit }) {
+  const [formValues, setFormValues] = useState({
+    name: profile.name || "",
+    email: profile.email || "",
+  });
+  const [errors, setErrors] = useState({});
+
+  const handleChange = (field, value) => {
+    setFormValues((current) => ({ ...current, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const nextErrors = { ...current };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  };
+
+  const handleSubmit = (event) => {
+    const nextErrors = {};
+    const trimmedName = formValues.name.trim();
+    const trimmedEmail = formValues.email.trim();
+
+    if (!trimmedName) {
+      nextErrors.name = "Name is required.";
+    }
+
+    if (!trimmedEmail) {
+      nextErrors.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      nextErrors.email = "Enter a valid email address.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      event.preventDefault();
+      setErrors(nextErrors);
+      return;
+    }
+
+    onSubmit(event);
+  };
+
   return (
     <Modal title="Client Profile" onClose={onClose}>
       <div className="mb-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -2235,9 +2286,22 @@ function ProfileModal({ profile, onClose, onSubmit }) {
         </div>
       </div>
 
-      <form onSubmit={onSubmit} className="space-y-4">
-        <ModalField name="name" label="Name" defaultValue={profile.name} />
-        <ModalField name="email" label="Email" defaultValue={profile.email} type="email" />
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        <ModalField
+          name="name"
+          label="Name"
+          value={formValues.name}
+          onChange={(event) => handleChange("name", event.target.value)}
+          error={errors.name}
+        />
+        <ModalField
+          name="email"
+          label="Email"
+          value={formValues.email}
+          onChange={(event) => handleChange("email", event.target.value)}
+          error={errors.email}
+          type="email"
+        />
         <ModalActions onClose={onClose} submitLabel="Save Profile" />
       </form>
     </Modal>
@@ -2245,14 +2309,78 @@ function ProfileModal({ profile, onClose, onSubmit }) {
 }
 
 function UserModal({ item, onClose, onSubmit }) {
+  const [formValues, setFormValues] = useState({
+    name: item?.name || "",
+    email: item?.email || "",
+    department: item?.department || "Engineering",
+  });
+  const [errors, setErrors] = useState({});
+
+  const handleChange = (field, value) => {
+    setFormValues((current) => ({ ...current, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const nextErrors = { ...current };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  };
+
+  const handleSubmit = (event) => {
+    const nextErrors = {};
+    const trimmedName = formValues.name.trim();
+    const trimmedEmail = formValues.email.trim();
+
+    if (!trimmedName) {
+      nextErrors.name = "Name is required.";
+    }
+
+    if (!trimmedEmail) {
+      nextErrors.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      nextErrors.email = "Enter a valid email address.";
+    }
+
+    if (!formValues.department.trim()) {
+      nextErrors.department = "Department is required.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      event.preventDefault();
+      setErrors(nextErrors);
+      return;
+    }
+
+    onSubmit(event);
+  };
+
   return (
     <Modal title={item ? "Edit User" : "Add User"} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <ModalField name="name" label="Name" defaultValue={item?.name || ""} />
-        <ModalField name="email" label="Email" defaultValue={item?.email || ""} type="email" />
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        <ModalField
+          name="name"
+          label="Name"
+          value={formValues.name}
+          onChange={(event) => handleChange("name", event.target.value)}
+          error={errors.name}
+        />
+        <ModalField
+          name="email"
+          label="Email"
+          value={formValues.email}
+          onChange={(event) => handleChange("email", event.target.value)}
+          error={errors.email}
+          type="email"
+        />
         <ModalSelect name="role" label="Role" defaultValue={item?.role || "Employee"} options={["Admin", "Manager", "Employee"]} />
         <ModalSelect name="status" label="Status" defaultValue={item?.status || "Active"} options={["Active", "Inactive"]} />
-        <ModalField name="department" label="Department" defaultValue={item?.department || "Engineering"} />
+        <ModalField
+          name="department"
+          label="Department"
+          value={formValues.department}
+          onChange={(event) => handleChange("department", event.target.value)}
+          error={errors.department}
+        />
         <ModalActions onClose={onClose} submitLabel={item ? "Save User" : "Add User"} />
       </form>
     </Modal>
@@ -2260,12 +2388,53 @@ function UserModal({ item, onClose, onSubmit }) {
 }
 
 function DepartmentModal({ item, onClose, onSubmit }) {
+  const [formValues, setFormValues] = useState({
+    name: item?.name || "",
+    head: item?.head || "",
+    employees: item?.employees || "1 member",
+  });
+  const [errors, setErrors] = useState({});
+
+  const handleChange = (field, value) => {
+    setFormValues((current) => ({ ...current, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const nextErrors = { ...current };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  };
+
+  const handleSubmit = (event) => {
+    const nextErrors = {};
+
+    if (!formValues.name.trim()) {
+      nextErrors.name = "Department name is required.";
+    }
+
+    if (!formValues.head.trim()) {
+      nextErrors.head = "Department head is required.";
+    }
+
+    if (!formValues.employees.trim()) {
+      nextErrors.employees = "Total employees is required.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      event.preventDefault();
+      setErrors(nextErrors);
+      return;
+    }
+
+    onSubmit(event);
+  };
+
   return (
     <Modal title={item ? "Edit Department" : "Create Department"} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <ModalField name="name" label="Department Name" defaultValue={item?.name || ""} />
-        <ModalField name="head" label="Department Head" defaultValue={item?.head || ""} />
-        <ModalField name="employees" label="Total Employees" defaultValue={item?.employees || "1 member"} />
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        <ModalField name="name" label="Department Name" value={formValues.name} onChange={(event) => handleChange("name", event.target.value)} error={errors.name} />
+        <ModalField name="head" label="Department Head" value={formValues.head} onChange={(event) => handleChange("head", event.target.value)} error={errors.head} />
+        <ModalField name="employees" label="Total Employees" value={formValues.employees} onChange={(event) => handleChange("employees", event.target.value)} error={errors.employees} />
         <ModalActions onClose={onClose} submitLabel={item ? "Save Department" : "Create Department"} />
       </form>
     </Modal>
@@ -2273,12 +2442,53 @@ function DepartmentModal({ item, onClose, onSubmit }) {
 }
 
 function BillingRateModal({ item, onClose, onSubmit }) {
+  const [formValues, setFormValues] = useState({
+    role: item?.role || "",
+    project: item?.project || "All Projects",
+    rate: item?.rate || "INR 2,500/hour",
+  });
+  const [errors, setErrors] = useState({});
+
+  const handleChange = (field, value) => {
+    setFormValues((current) => ({ ...current, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const nextErrors = { ...current };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  };
+
+  const handleSubmit = (event) => {
+    const nextErrors = {};
+
+    if (!formValues.role.trim()) {
+      nextErrors.role = "Role is required.";
+    }
+
+    if (!formValues.project.trim()) {
+      nextErrors.project = "Project is required.";
+    }
+
+    if (!formValues.rate.trim()) {
+      nextErrors.rate = "Rate is required.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      event.preventDefault();
+      setErrors(nextErrors);
+      return;
+    }
+
+    onSubmit(event);
+  };
+
   return (
     <Modal title={item ? "Edit Billing Rate" : "Add Billing Rate"} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <ModalField name="role" label="Role" defaultValue={item?.role || ""} />
-        <ModalField name="project" label="Project" defaultValue={item?.project || "All Projects"} />
-        <ModalField name="rate" label="Rate" defaultValue={item?.rate || "INR 2,500/hour"} />
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        <ModalField name="role" label="Role" value={formValues.role} onChange={(event) => handleChange("role", event.target.value)} error={errors.role} />
+        <ModalField name="project" label="Project" value={formValues.project} onChange={(event) => handleChange("project", event.target.value)} error={errors.project} />
+        <ModalField name="rate" label="Rate" value={formValues.rate} onChange={(event) => handleChange("rate", event.target.value)} error={errors.rate} />
         <ModalSelect name="type" label="Type" defaultValue={item?.type || "Hourly"} options={["Hourly", "Daily", "Monthly"]} />
         <ModalActions onClose={onClose} submitLabel={item ? "Save Billing Rate" : "Add Billing Rate"} />
       </form>
@@ -2287,54 +2497,152 @@ function BillingRateModal({ item, onClose, onSubmit }) {
 }
 
 function OvertimeRuleModal({ item, onClose, onSubmit }) {
+  const [formValues, setFormValues] = useState({
+    name: item?.name || "",
+    threshold: item?.threshold || "After 40 hours",
+    multiplier: item?.multiplier || "1.5x",
+    appliesTo: item?.appliesTo || "All Employees",
+  });
+  const [errors, setErrors] = useState({});
+
+  const handleChange = (field, value) => {
+    setFormValues((current) => ({ ...current, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const nextErrors = { ...current };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  };
+
+  const handleSubmit = (event) => {
+    const nextErrors = {};
+
+    if (!formValues.name.trim()) {
+      nextErrors.name = "Rule name is required.";
+    }
+
+    if (!formValues.threshold.trim()) {
+      nextErrors.threshold = "Threshold is required.";
+    }
+
+    if (!formValues.multiplier.trim()) {
+      nextErrors.multiplier = "Pay multiplier is required.";
+    }
+
+    if (!formValues.appliesTo.trim()) {
+      nextErrors.appliesTo = "Applies to is required.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      event.preventDefault();
+      setErrors(nextErrors);
+      return;
+    }
+
+    onSubmit(event);
+  };
+
   return (
     <Modal title={item ? "Edit Overtime Rule" : "Add Overtime Rule"} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <ModalField name="name" label="Rule Name" defaultValue={item?.name || ""} />
-        <ModalField name="threshold" label="Threshold" defaultValue={item?.threshold || "After 40 hours"} />
-        <ModalField name="multiplier" label="Pay Multiplier" defaultValue={item?.multiplier || "1.5x"} />
-        <ModalField name="appliesTo" label="Applies To" defaultValue={item?.appliesTo || "All Employees"} />
+      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+        <ModalField name="name" label="Rule Name" value={formValues.name} onChange={(event) => handleChange("name", event.target.value)} error={errors.name} />
+        <ModalField name="threshold" label="Threshold" value={formValues.threshold} onChange={(event) => handleChange("threshold", event.target.value)} error={errors.threshold} />
+        <ModalField name="multiplier" label="Pay Multiplier" value={formValues.multiplier} onChange={(event) => handleChange("multiplier", event.target.value)} error={errors.multiplier} />
+        <ModalField name="appliesTo" label="Applies To" value={formValues.appliesTo} onChange={(event) => handleChange("appliesTo", event.target.value)} error={errors.appliesTo} />
         <ModalActions onClose={onClose} submitLabel={item ? "Save Overtime Rule" : "Add Overtime Rule"} />
       </form>
     </Modal>
   );
 }
 
-function PolicyModal({ onClose, onSubmit }) {
+function PolicyModal({ item, onClose, onSubmit }) {
+  const [formValues, setFormValues] = useState({
+    title: item?.title || "",
+    description: item?.description || "",
+    appliesTo: item?.appliesTo || "All users",
+  });
+  const [errors, setErrors] = useState({});
+
+  const handleChange = (field, value) => {
+    setFormValues((current) => ({ ...current, [field]: value }));
+    setErrors((current) => {
+      if (!current[field]) return current;
+      const nextErrors = { ...current };
+      delete nextErrors[field];
+      return nextErrors;
+    });
+  };
+
+  const handleSubmit = (event) => {
+    const nextErrors = {};
+
+    if (!formValues.title.trim()) {
+      nextErrors.title = "Policy name is required.";
+    }
+
+    if (!formValues.description.trim()) {
+      nextErrors.description = "Description is required.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      event.preventDefault();
+      setErrors(nextErrors);
+      return;
+    }
+
+    onSubmit(event);
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4">
       <button type="button" className="absolute inset-0" aria-label="Close policy modal" onClick={onClose} />
       <section className="relative z-10 w-full max-w-3xl rounded-2xl bg-white px-10 py-9 shadow-2xl">
         <div className="mb-7 flex items-center justify-between">
-          <h3 className="text-3xl font-bold tracking-tight text-slate-950">Add New Policy</h3>
+          <h3 className="text-3xl font-bold tracking-tight text-slate-950">{item ? "Edit Policy" : "Add New Policy"}</h3>
           <button type="button" onClick={onClose} className="text-3xl leading-none text-slate-500 hover:text-slate-800">x</button>
         </div>
 
-        <form onSubmit={onSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} noValidate className="space-y-6">
           <label className="block">
             <span className="mb-3 block text-base font-semibold text-slate-800">Policy Name *</span>
             <input
               name="title"
-              required
-              className="h-12 w-full rounded-lg border border-slate-300 px-4 text-base outline-none focus:border-violet-600 focus:ring-2 focus:ring-violet-100"
+              value={formValues.title}
+              onChange={(event) => handleChange("title", event.target.value)}
+              aria-invalid={errors.title ? "true" : "false"}
+              className={`h-12 w-full rounded-lg border px-4 text-base outline-none focus:ring-2 ${
+                errors.title
+                  ? "border-red-500 bg-red-50 text-red-900 focus:border-red-500 focus:ring-red-100"
+                  : "border-slate-300 focus:border-violet-600 focus:ring-violet-100"
+              }`}
             />
+            {errors.title ? <span className="mt-2 block text-sm font-medium text-red-600">{errors.title}</span> : null}
           </label>
 
           <label className="block">
             <span className="mb-3 block text-base font-semibold text-slate-800">Description *</span>
             <textarea
               name="description"
-              required
               rows={5}
-              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-violet-600 focus:ring-2 focus:ring-violet-100"
+              value={formValues.description}
+              onChange={(event) => handleChange("description", event.target.value)}
+              aria-invalid={errors.description ? "true" : "false"}
+              className={`w-full rounded-lg border px-4 py-3 text-base outline-none focus:ring-2 ${
+                errors.description
+                  ? "border-red-500 bg-red-50 text-red-900 focus:border-red-500 focus:ring-red-100"
+                  : "border-slate-300 focus:border-violet-600 focus:ring-violet-100"
+              }`}
             />
+            {errors.description ? <span className="mt-2 block text-sm font-medium text-red-600">{errors.description}</span> : null}
           </label>
 
           <label className="block">
             <span className="mb-3 block text-base font-semibold text-slate-800">Applies To *</span>
             <select
               name="appliesTo"
-              defaultValue="All users"
+              value={formValues.appliesTo}
+              onChange={(event) => handleChange("appliesTo", event.target.value)}
               className="h-12 w-full rounded-lg border border-slate-300 bg-white px-4 text-base outline-none focus:border-violet-600 focus:ring-2 focus:ring-violet-100"
             >
               <option>All users</option>
@@ -2346,7 +2654,7 @@ function PolicyModal({ onClose, onSubmit }) {
 
           <div className="flex justify-end gap-3 pt-2">
             <OutlineButton onClick={onClose}>Cancel</OutlineButton>
-            <PurpleButton type="submit">Add Policy</PurpleButton>
+            <PurpleButton type="submit">{item ? "Save Policy" : "Add Policy"}</PurpleButton>
           </div>
         </form>
       </section>
@@ -2461,17 +2769,22 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-function ModalField({ name, label, defaultValue, type = "text" }) {
+function ModalField({ name, label, defaultValue, value, onChange, error, type = "text" }) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span>
       <input
         name={name}
         type={type}
-        defaultValue={defaultValue}
-        required
-        className="h-11 w-full rounded-lg border border-slate-300 px-3 text-base"
+        {...(value !== undefined ? { value, onChange } : { defaultValue })}
+        aria-invalid={error ? "true" : "false"}
+        className={`h-11 w-full rounded-lg border px-3 text-base outline-none transition ${
+          error
+            ? "border-red-500 bg-red-50 text-red-900 placeholder:text-red-300 focus:border-red-500"
+            : "border-slate-300 focus:border-slate-400"
+        }`}
       />
+      {error ? <span className="mt-2 block text-sm font-medium text-red-600">{error}</span> : null}
     </label>
   );
 }

@@ -18,6 +18,7 @@ export default function AcceptInvitePage() {
   const [message, setMessage] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -45,6 +46,22 @@ export default function AcceptInvitePage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    const nextErrors = {};
+
+    if (!password.trim()) {
+      nextErrors.password = "Password is required.";
+    }
+
+    if (!confirmPassword.trim()) {
+      nextErrors.confirmPassword = "Please confirm your password.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors(nextErrors);
+      return;
+    }
+
+    setFieldErrors({});
     setError("");
     setMessage("");
     setSubmitting(true);
@@ -127,17 +144,27 @@ export default function AcceptInvitePage() {
           ) : null}
 
           {!loading && invite && !message ? (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} noValidate className="space-y-4">
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">Create password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
                     value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-4 py-3 pr-12"
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+                      setFieldErrors((current) => {
+                        if (!current.password) return current;
+                        const nextErrors = { ...current };
+                        delete nextErrors.password;
+                        return nextErrors;
+                      });
+                    }}
+                    aria-invalid={fieldErrors.password ? "true" : "false"}
+                    className={`w-full rounded-lg border px-4 py-3 pr-12 ${
+                      fieldErrors.password ? "border-rose-500 bg-rose-50 text-rose-900" : "border-slate-300"
+                    }`}
                     placeholder="Enter your password"
-                    required
                   />
                   <button
                     type="button"
@@ -147,6 +174,7 @@ export default function AcceptInvitePage() {
                     {showPassword ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
                   </button>
                 </div>
+                {fieldErrors.password ? <p className="mt-2 text-sm font-medium text-rose-600">{fieldErrors.password}</p> : null}
               </div>
 
               <div>
@@ -155,10 +183,20 @@ export default function AcceptInvitePage() {
                   <input
                     type={showConfirmPassword ? "text" : "password"}
                     value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-4 py-3 pr-12"
+                    onChange={(event) => {
+                      setConfirmPassword(event.target.value);
+                      setFieldErrors((current) => {
+                        if (!current.confirmPassword) return current;
+                        const nextErrors = { ...current };
+                        delete nextErrors.confirmPassword;
+                        return nextErrors;
+                      });
+                    }}
+                    aria-invalid={fieldErrors.confirmPassword ? "true" : "false"}
+                    className={`w-full rounded-lg border px-4 py-3 pr-12 ${
+                      fieldErrors.confirmPassword ? "border-rose-500 bg-rose-50 text-rose-900" : "border-slate-300"
+                    }`}
                     placeholder="Re-enter your password"
-                    required
                   />
                   <button
                     type="button"
@@ -168,6 +206,7 @@ export default function AcceptInvitePage() {
                     {showConfirmPassword ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
                   </button>
                 </div>
+                {fieldErrors.confirmPassword ? <p className="mt-2 text-sm font-medium text-rose-600">{fieldErrors.confirmPassword}</p> : null}
               </div>
 
               <button

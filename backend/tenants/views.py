@@ -20,6 +20,7 @@ from accounts.models import UserRole
 from accounts.permissions import IsAdmin, IsTenantOrAdmin
 from accounts.services import send_user_invitation_email
 from finance.models import Invoice
+from notifications.models import Notification
 from tenants.models import (
     DashboardActivityLog,
     Department,
@@ -297,6 +298,12 @@ class TenantPoliciesView(APIView):
             resource=policy.title,
             details=f"{policy.title} policy was created.",
         )
+        _notify_policy_change(
+            organization=organization,
+            actor=request.user,
+            policy=policy,
+            action="created",
+        )
         return Response(TenantPolicySerializer(policy).data, status=status.HTTP_201_CREATED)
 
 
@@ -325,6 +332,12 @@ class TenantPolicyDetailView(APIView):
             resource=policy.title,
             details=f"{policy.title} policy was updated.",
         )
+        _notify_policy_change(
+            organization=organization,
+            actor=request.user,
+            policy=policy,
+            action="updated",
+        )
         return Response(TenantPolicySerializer(policy).data)
 
     def delete(self, request, policy_id):
@@ -339,7 +352,22 @@ class TenantPolicyDetailView(APIView):
             resource=resource,
             details=f"{resource} policy was deleted.",
         )
+        _notify_policy_change(
+            organization=organization,
+            actor=request.user,
+            policy_title=resource,
+            action="deleted",
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class EmployeePoliciesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        organization = _get_request_organization(request.user)
+        policies = TenantPolicy.objects.filter(organization=organization, enabled=True)
+        return Response(TenantPolicySerializer(policies, many=True).data)
 
 
 class TenantBillingRatesView(APIView):
@@ -925,6 +953,23 @@ def _resolve_org_user(organization, value):
         if (candidate.get_full_name() or "").strip().lower() == text_value.lower():
             return candidate
     return None
+
+
+def _notify_policy_change(*, organization, actor, action, policy=None, policy_title=""):
+    title = getattr(policy, "title", "") or policy_title or "Policy"
+    actor_name = actor.get_full_name() or actor.username or "An administrator"
+    message = f"{title} was {action} by {actor_name}."
+    recipients = User.objects.filter(organization=organization, is_active=True)
+    notifications = [
+        Notification(
+            recipient=recipient,
+            title="Policy update",
+            message=message,
+        )
+        for recipient in recipients
+    ]
+    if notifications:
+        Notification.objects.bulk_create(notifications)
 
 
 def _parse_decimal_amount(value):

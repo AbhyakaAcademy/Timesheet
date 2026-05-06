@@ -20,11 +20,13 @@ export default function SignUpPage() {
   const [organizationName, setOrganizationName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   const [emailError, setEmailError] = useState("");
   const [organizationError, setOrganizationError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [termsError, setTermsError] = useState("");
   const [formError, setFormError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [verificationUrl, setVerificationUrl] = useState("");
@@ -96,6 +98,15 @@ export default function SignUpPage() {
     return true;
   };
 
+  const validateTerms = (value) => {
+    if (!value) {
+      setTermsError("You must accept the terms and conditions.");
+      return false;
+    }
+    setTermsError("");
+    return true;
+  };
+
   // ---------------- SUBMIT ----------------
 
   const handleSubmit = (e) => {
@@ -109,8 +120,9 @@ export default function SignUpPage() {
     const organizationValid = validateOrganization(organizationName);
     const passwordValid = validatePassword(password);
     const confirmValid = validateConfirmPassword(confirmPassword);
+    const termsValid = validateTerms(acceptedTerms);
 
-    if (!emailValid || !organizationValid || !passwordValid || !confirmValid) return;
+    if (!emailValid || !organizationValid || !passwordValid || !confirmValid || !termsValid) return;
 
     setIsLoading(true);
 
@@ -170,7 +182,7 @@ export default function SignUpPage() {
     <div className="min-h-screen bg-gray-50 relative">
       <div className="min-h-[calc(100vh-56px)] flex">
       {/* LEFT BRANDING */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-700 p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-700 p-12 flex-col">
         <div>
           <Link href="/" className="flex items-center gap-3">
             <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center">
@@ -183,11 +195,11 @@ export default function SignUpPage() {
           </Link>
         </div>
 
-        <div>
-          <h2 className="text-4xl text-white mb-4">
+        <div className="mt-20 max-w-xl">
+          <h2 className="text-4xl leading-tight text-white mb-4">
             Start Your Free Trial Today
           </h2>
-          <p className="text-indigo-100 mb-8">
+          <p className="text-lg text-indigo-100 mb-8">
             Join 10,000+ enterprises worldwide.
           </p>
 
@@ -204,7 +216,7 @@ export default function SignUpPage() {
           ))}
         </div>
 
-        <p className="text-sm text-indigo-200">
+        <p className="mt-auto pt-12 text-sm text-indigo-200">
           Trusted by 10,000+ enterprises worldwide
         </p>
       </div>
@@ -312,19 +324,23 @@ export default function SignUpPage() {
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (passwordError) validatePassword(e.target.value);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === " ") {
-                      e.preventDefault();
-                    }
-                  }}
-                  onBlur={(e) => validatePassword(e.target.value)}
-                  className="no-password-reveal w-full px-4 py-3 border rounded-lg pr-12"
-                  placeholder="Min 8 chars, uppercase, number, symbol"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (passwordError) validatePassword(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === " ") {
+                        e.preventDefault();
+                      }
+                    }}
+                    onBlur={(e) => validatePassword(e.target.value)}
+                    className={`no-password-reveal w-full px-4 py-3 border rounded-lg pr-12 focus:outline-none focus:ring-2 ${
+                      passwordError
+                        ? "border-red-300 focus:ring-red-500/20"
+                        : "border-gray-300 focus:ring-indigo-500/20"
+                    }`}
+                    placeholder="Min 8 chars, uppercase, number, symbol"
                   />
                   <button
                     type="button"
@@ -345,18 +361,22 @@ export default function SignUpPage() {
                 <div className="relative">
                   <input
                     type={showConfirmPassword ? "text" : "password"}
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                    if (confirmPasswordError) validateConfirmPassword(e.target.value);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === " ") {
-                      e.preventDefault();
-                    }
-                  }}
-                  onBlur={(e) => validateConfirmPassword(e.target.value)}
-                  className="no-password-reveal w-full px-4 py-3 border rounded-lg pr-12"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      if (confirmPasswordError) validateConfirmPassword(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === " ") {
+                        e.preventDefault();
+                      }
+                    }}
+                    onBlur={(e) => validateConfirmPassword(e.target.value)}
+                    className={`no-password-reveal w-full px-4 py-3 border rounded-lg pr-12 focus:outline-none focus:ring-2 ${
+                      confirmPasswordError
+                        ? "border-red-300 focus:ring-red-500/20"
+                        : "border-gray-300 focus:ring-indigo-500/20"
+                    }`}
                     placeholder="Re-enter password"
                   />
                   <button
@@ -385,6 +405,31 @@ export default function SignUpPage() {
                   ))}
                 </div>
               )}
+
+              <div>
+                <label
+                  className={`flex items-start gap-3 rounded-lg border px-4 py-3 transition ${
+                    termsError ? "border-red-300 bg-red-50" : "border-gray-200 bg-gray-50"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={acceptedTerms}
+                    onChange={(e) => {
+                      setAcceptedTerms(e.target.checked);
+                      if (termsError) validateTerms(e.target.checked);
+                    }}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-gray-700">
+                    I agree to the{" "}
+                    <span className="font-semibold text-indigo-600">Terms and Conditions</span>
+                    {" "}and{" "}
+                    <span className="font-semibold text-indigo-600">Privacy Policy</span>.
+                  </span>
+                </label>
+                {termsError ? <p className="mt-1 text-sm text-red-600">{termsError}</p> : null}
+              </div>
 
               {/* SUBMIT */}
               <button

@@ -2,9 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, Check, Pencil, Settings, User, X } from "lucide-react";
+import { Bell, BookOpen, Check, Pencil, Settings, User, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { clearSession } from "@/lib/auth";
+
+type PolicyItem = {
+  id: string;
+  title: string;
+  description: string;
+  appliesTo: string;
+  details: string[];
+  updated: string;
+};
 
 type DashboardHeaderProps = {
   notificationCount: number;
@@ -12,6 +21,7 @@ type DashboardHeaderProps = {
   onClearAllNotifications?: () => void;
   onClearNotification?: (notification: { id: string; title: string; message: string; time: string; source?: string; apiId?: number }) => void;
   notifications: { id: string; title: string; message: string; time: string; source?: string; apiId?: number }[];
+  policies?: PolicyItem[];
   initialName?: string;
   initialEmail?: string;
   role?: string;
@@ -23,6 +33,7 @@ export function DashboardHeader({
   onClearAllNotifications,
   onClearNotification,
   notifications,
+  policies = [],
   initialName = "John Doe",
   initialEmail = "employee@abhyaka.com",
   role = "Software Engineer",
@@ -55,6 +66,7 @@ export function DashboardHeader({
     return storedEmail?.trim() || initialEmail;
   });
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isPoliciesOpen, setIsPoliciesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [quickSettings, setQuickSettings] = useState(() => {
     const defaultQuickSettings = {
@@ -79,6 +91,7 @@ export function DashboardHeader({
     const handleOutsideClick = (event: MouseEvent) => {
       if (!headerActionsRef.current?.contains(event.target as Node)) {
         setIsNotificationsOpen(false);
+        setIsPoliciesOpen(false);
         setIsSettingsOpen(false);
       }
     };
@@ -114,9 +127,16 @@ export function DashboardHeader({
   };
 
   const handleToggleNotifications = () => {
+    setIsPoliciesOpen(false);
     setIsSettingsOpen(false);
     setIsNotificationsOpen((prev) => !prev);
     onNotificationClick();
+  };
+
+  const handleTogglePolicies = () => {
+    setIsNotificationsOpen(false);
+    setIsSettingsOpen(false);
+    setIsPoliciesOpen((prev) => !prev);
   };
 
   const handleClearAllNotifications = () => {
@@ -131,6 +151,7 @@ export function DashboardHeader({
 
   const handleSettings = () => {
     setIsNotificationsOpen(false);
+    setIsPoliciesOpen(false);
     setIsSettingsOpen((prev) => !prev);
   };
 
@@ -213,6 +234,56 @@ export function DashboardHeader({
         </div>
 
         <div ref={headerActionsRef} className="flex items-center gap-4 relative">
+          <button
+            type="button"
+            onClick={handleTogglePolicies}
+            className={`relative h-11 w-11 rounded-full border shadow-sm flex items-center justify-center transition ${
+              isPoliciesOpen ? "border-indigo-600 bg-indigo-50 text-indigo-700" : "border-gray-300 bg-white hover:bg-gray-50"
+            }`}
+            aria-label="Policies"
+          >
+            <BookOpen className="h-5 w-5" />
+          </button>
+
+          {isPoliciesOpen && (
+            <div className="absolute right-0 top-14 z-20 max-h-[28rem] w-[360px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
+              <div className="border-b border-gray-100 px-4 py-4">
+                <p className="text-sm font-semibold text-gray-900">Company Policies</p>
+                <p className="mt-1 text-xs text-gray-500">Read the latest active policies for your organization.</p>
+              </div>
+              <div className="max-h-[22rem] space-y-3 overflow-y-auto p-4">
+                {policies.map((policy) => (
+                  <div key={policy.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{policy.title}</p>
+                        <p className="mt-1 text-xs text-slate-500">Applies to {policy.appliesTo}</p>
+                      </div>
+                      <span className="rounded-full bg-white px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">
+                        {policy.updated || "Current"}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-600">{policy.description}</p>
+                    {policy.details.length > 0 ? (
+                      <ul className="mt-3 space-y-2 text-xs text-slate-700">
+                        {policy.details.map((detail, index) => (
+                          <li key={`${policy.id}-${index}`} className="rounded-xl bg-white px-3 py-2">
+                            {detail}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ))}
+                {policies.length === 0 && (
+                  <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-xs text-slate-500">
+                    No active policies are available right now.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={handleToggleNotifications}

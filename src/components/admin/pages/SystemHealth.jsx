@@ -37,7 +37,9 @@ export function SystemHealth() {
               <div className="h-3 w-3 rounded-full bg-green-500"></div>
             </div>
             <p className="text-sm text-gray-600 mb-1">{title}</p>
-            <p className="text-xl font-semibold text-gray-900">{value}</p>
+            <p className={`${typeof value === "string" && value.length > 8 ? "text-lg" : "text-xl"} font-semibold text-gray-900`}>
+              {value}
+            </p>
           </div>
         ))}
       </div>

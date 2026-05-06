@@ -17,6 +17,7 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState(() => (token ? "" : "Missing reset token."));
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -44,6 +45,22 @@ export default function ResetPasswordPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    const nextErrors = {};
+
+    if (!password.trim()) {
+      nextErrors.password = "New password is required.";
+    }
+
+    if (!confirmPassword.trim()) {
+      nextErrors.confirmPassword = "Please confirm your new password.";
+    }
+
+    if (Object.keys(nextErrors).length) {
+      setFieldErrors(nextErrors);
+      return;
+    }
+
+    setFieldErrors({});
     setError("");
     setMessage("");
     setSubmitting(true);
@@ -111,22 +128,33 @@ export default function ResetPasswordPage() {
           ) : null}
 
           {!loading && resetStatus && !message ? (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} noValidate className="space-y-4">
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">New password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? "text" : "password"}
                     value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-4 py-3 pr-12"
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+                      setFieldErrors((current) => {
+                        if (!current.password) return current;
+                        const nextErrors = { ...current };
+                        delete nextErrors.password;
+                        return nextErrors;
+                      });
+                    }}
+                    aria-invalid={fieldErrors.password ? "true" : "false"}
+                    className={`w-full rounded-lg border px-4 py-3 pr-12 ${
+                      fieldErrors.password ? "border-rose-500 bg-rose-50 text-rose-900" : "border-slate-300"
+                    }`}
                     placeholder="Enter your new password"
-                    required
                   />
                   <button type="button" onClick={() => setShowPassword((current) => !current)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
                     {showPassword ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
                   </button>
                 </div>
+                {fieldErrors.password ? <p className="mt-2 text-sm font-medium text-rose-600">{fieldErrors.password}</p> : null}
               </div>
 
               <div>
@@ -135,15 +163,26 @@ export default function ResetPasswordPage() {
                   <input
                     type={showConfirmPassword ? "text" : "password"}
                     value={confirmPassword}
-                    onChange={(event) => setConfirmPassword(event.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-4 py-3 pr-12"
+                    onChange={(event) => {
+                      setConfirmPassword(event.target.value);
+                      setFieldErrors((current) => {
+                        if (!current.confirmPassword) return current;
+                        const nextErrors = { ...current };
+                        delete nextErrors.confirmPassword;
+                        return nextErrors;
+                      });
+                    }}
+                    aria-invalid={fieldErrors.confirmPassword ? "true" : "false"}
+                    className={`w-full rounded-lg border px-4 py-3 pr-12 ${
+                      fieldErrors.confirmPassword ? "border-rose-500 bg-rose-50 text-rose-900" : "border-slate-300"
+                    }`}
                     placeholder="Re-enter your new password"
-                    required
                   />
                   <button type="button" onClick={() => setShowConfirmPassword((current) => !current)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
                     {showConfirmPassword ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
                   </button>
                 </div>
+                {fieldErrors.confirmPassword ? <p className="mt-2 text-sm font-medium text-rose-600">{fieldErrors.confirmPassword}</p> : null}
               </div>
 
               <button
