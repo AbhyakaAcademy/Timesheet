@@ -85,6 +85,17 @@ const formatDateTimeLabel = (value: string) => {
   });
 };
 
+const addOneDayToLocalDateTime = (value: string) => {
+  const next = new Date(value);
+  next.setDate(next.getDate() + 1);
+  const year = next.getFullYear();
+  const month = String(next.getMonth() + 1).padStart(2, "0");
+  const day = String(next.getDate()).padStart(2, "0");
+  const hours = String(next.getHours()).padStart(2, "0");
+  const minutes = String(next.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 const formatDuration = (minutes: number) => {
   const totalSeconds = Math.max(Math.round(minutes * 60), 0);
   const hours = Math.floor(totalSeconds / 3600);
@@ -210,6 +221,7 @@ export function TimerCard({
     const requestTypeInput = manualRequestType.trim();
     const commentInput = manualRequestComment.trim();
     const selectedProject = projects.find((project) => project.id === manualRequestProjectId);
+    let normalizedEndDateTime = manualRequestEndDateTime;
 
     if (
       !requestTypeInput ||
@@ -222,7 +234,15 @@ export function TimerCard({
       return;
     }
 
-    if (new Date(manualRequestEndDateTime).getTime() <= new Date(manualRequestStartDateTime).getTime()) {
+    if (
+      new Date(normalizedEndDateTime).getTime() <= new Date(manualRequestStartDateTime).getTime() &&
+      normalizedEndDateTime.slice(0, 10) === manualRequestStartDateTime.slice(0, 10)
+    ) {
+      normalizedEndDateTime = addOneDayToLocalDateTime(normalizedEndDateTime);
+      setManualRequestEndDateTime(normalizedEndDateTime);
+    }
+
+    if (new Date(normalizedEndDateTime).getTime() <= new Date(manualRequestStartDateTime).getTime()) {
       setManualError("End time must be after start time.");
       return;
     }
@@ -232,7 +252,7 @@ export function TimerCard({
       const structuredComment = [
         `Project: ${selectedProject ? `${selectedProject.name} (${selectedProject.code})` : manualRequestProjectId}`,
         `Start: ${formatDateTimeLabel(manualRequestStartDateTime)}`,
-        `End: ${formatDateTimeLabel(manualRequestEndDateTime)}`,
+        `End: ${formatDateTimeLabel(normalizedEndDateTime)}`,
         `Employee details: ${commentInput}`,
       ].join("\n");
 
@@ -242,7 +262,7 @@ export function TimerCard({
         comment: structuredComment,
         projectId: Number(manualRequestProjectId),
         startDateTime: manualRequestStartDateTime,
-        endDateTime: manualRequestEndDateTime,
+        endDateTime: normalizedEndDateTime,
       });
       setManualRequestComment("");
       setManualRequestType("");
@@ -402,6 +422,9 @@ export function TimerCard({
               onChange={(event) => setManualRequestEndDateTime(event.target.value)}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
+            <p className="mt-1 text-[11px] text-gray-500">
+              If the end time is earlier than the start time on the same date, it will be treated as a next-day night shift.
+            </p>
           </div>
           <div className="md:col-span-2">
             <label className="text-xs font-medium text-gray-600">Employee details</label>

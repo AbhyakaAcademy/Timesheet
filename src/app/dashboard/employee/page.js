@@ -11,6 +11,52 @@ import HelpButton from "@/components/support/HelpButton";
 import { clearClientNotification, clearClientNotifications, getClientNotifications, markClientNotificationsRead, subscribeToClientNotifications } from "@/lib/supportTickets";
 
 const TENANT_DASHBOARD_STORAGE_KEY = "tenantAdminDashboardState";
+const fallbackPolicies = [
+  {
+    id: "1",
+    title: "Working Hours Policy",
+    description: "Defines standard working hours, break times, and flexible work arrangements",
+    appliesTo: "All departments",
+    details: [
+      "Standard work is 9:00 AM to 6:00 PM with a one-hour lunch break.",
+      "Flexible start times are allowed with manager approval.",
+    ],
+    updated: "Jan 15, 2026",
+  },
+  {
+    id: "2",
+    title: "Approval Workflow Rules",
+    description: "Multi-level approval process for timesheets, time-off requests, and overtime",
+    appliesTo: "Managers & above",
+    details: [
+      "Employee submissions go to the reporting manager first.",
+      "Overtime and exceptions require second-level approval from department heads.",
+    ],
+    updated: "Dec 20, 2025",
+  },
+  {
+    id: "3",
+    title: "Access Control Policy",
+    description: "Role-based access permissions for system features and data visibility",
+    appliesTo: "All users",
+    details: [
+      "Employees can access their own records.",
+      "Managers can review their teams, and admins can configure organization-wide settings.",
+    ],
+    updated: "Jan 1, 2026",
+  },
+  {
+    id: "4",
+    title: "Time-off Policy",
+    description: "Leave accrual, request, and approval policies for different leave types",
+    appliesTo: "All employees",
+    details: [
+      "Leave requests must be submitted before planned absence.",
+      "Emergency leave can be regularized after manager review.",
+    ],
+    updated: "Nov 30, 2025",
+  },
+];
 
 const parseLocalDateValue = (value) => {
   if (!value) return new Date("");
@@ -66,6 +112,25 @@ const toRelative = (iso) => {
 const getLatestRejectionComment = (sheet) =>
   (sheet?.approvals || []).find((approval) => approval.action === "REJECTED")?.comment || "";
 
+const normalizeApiNotification = (item) => ({
+  id: String(item.id),
+  apiId: item.id,
+  source: "api",
+  title: item.title,
+  message: item.message,
+  time: toRelative(item.created_at),
+  is_read: item.is_read,
+});
+
+const normalizePolicy = (item) => ({
+  id: String(item.id),
+  title: item.title,
+  description: item.description || item.desc || "",
+  appliesTo: item.applies_to || item.applies || "All users",
+  details: Array.isArray(item.details) ? item.details : [],
+  updated: item.lastUpdated || "",
+});
+
 export default function EmployeeDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -78,6 +143,7 @@ export default function EmployeeDashboardPage() {
   const [summary, setSummary] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [supportNotifications, setSupportNotifications] = useState([]);
+  const [policies, setPolicies] = useState([]);
   const [manualRequests, setManualRequests] = useState([]);
   const [maxDailyHours, setMaxDailyHours] = useState(12);
 
@@ -99,13 +165,14 @@ export default function EmployeeDashboardPage() {
 
   const loadData = useCallback(async () => {
     setErrorMessage("");
-    const [meRes, summaryRes, timesheetRes, historyRes, projectsRes, notificationsRes, manualRequestsRes] = await Promise.all([
+    const [meRes, summaryRes, timesheetRes, historyRes, projectsRes, notificationsRes, policiesRes, manualRequestsRes] = await Promise.all([
       apiFetch("/me/"),
       apiFetch("/employee/dashboard-summary"),
       apiFetch("/timesheets/current"),
       apiFetch("/timesheets"),
       apiFetch("/projects"),
       apiFetch("/notifications"),
+      apiFetch("/employee/policies"),
       apiFetch("/employee/manual-entry-requests"),
     ]);
 
@@ -125,17 +192,19 @@ export default function EmployeeDashboardPage() {
         createdAt: item.created_at,
       }))
     );
-    setNotifications(
-      (notificationsRes || []).map((item) => ({
-        id: String(item.id),
-        apiId: item.id,
-        source: "api",
-        title: item.title,
-        message: item.message,
-        time: toRelative(item.created_at),
-        is_read: item.is_read,
-      }))
-    );
+    setNotifications((notificationsRes || []).map(normalizeApiNotification));
+    const nextPolicies = policiesRes?.length ? policiesRes.map(normalizePolicy) : fallbackPolicies;
+    setPolicies(nextPolicies);
+  }, []);
+
+  const refreshHeaderData = useCallback(async () => {
+    const [notificationsRes, policiesRes] = await Promise.all([
+      apiFetch("/notifications"),
+      apiFetch("/employee/policies"),
+    ]);
+    setNotifications((notificationsRes || []).map(normalizeApiNotification));
+    const nextPolicies = policiesRes?.length ? policiesRes.map(normalizePolicy) : fallbackPolicies;
+    setPolicies(nextPolicies);
   }, []);
 
   useEffect(() => {
@@ -154,6 +223,27 @@ export default function EmployeeDashboardPage() {
     setSupportNotifications(getClientNotifications());
     return subscribeToClientNotifications(setSupportNotifications);
   }, []);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshHeaderData().catch(() => {});
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      refreshHeaderData().catch(() => {});
+    }, 60000);
+
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
+    };
+  }, [refreshHeaderData]);
 
   const rows = useMemo(() => {
     if (!timesheet) return [];
@@ -466,6 +556,7 @@ export default function EmployeeDashboardPage() {
         onClearAllNotifications={handleClearAllNotifications}
         onClearNotification={handleClearNotification}
         notifications={combinedNotifications}
+        policies={policies}
         initialName={userDisplayName}
         initialEmail={me?.email || ""}
         role={me?.role || "employee"}

@@ -5,7 +5,8 @@ from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from tenants.models import TenantOrganization, TenantSubscription
+from notifications.models import Notification
+from tenants.models import TenantOrganization, TenantPolicy, TenantSubscription
 
 User = get_user_model()
 
@@ -29,6 +30,12 @@ class TenantApiTests(APITestCase):
             username="admin-test",
             password="Pass@12345",
             role="admin",
+        )
+        self.employee_user = User.objects.create_user(
+            username="employee-test",
+            password="Pass@12345",
+            role="employee",
+            organization=self.organization,
         )
 
     def test_tenant_can_create_department(self):
@@ -68,3 +75,50 @@ class TenantApiTests(APITestCase):
         self.assertEqual(response.data["email"], "invite-employee@example.com")
         self.assertTrue(response.data["invitation_pending"])
         self.assertIn("invitation_url", response.data)
+
+    def test_employee_can_view_active_policies(self):
+        active_policy = TenantPolicy.objects.create(
+            organization=self.organization,
+            title="Attendance Policy",
+            description="Follow standard attendance rules.",
+            applies_to="All employees",
+            enabled=True,
+            details=["Check in daily."],
+        )
+        TenantPolicy.objects.create(
+            organization=self.organization,
+            title="Archived Policy",
+            description="Should stay hidden.",
+            applies_to="All employees",
+            enabled=False,
+            details=["Old rule."],
+        )
+
+        self.client.force_authenticate(self.employee_user)
+        response = self.client.get(reverse("employee_policies"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["id"], active_policy.id)
+        self.assertEqual(response.data[0]["title"], "Attendance Policy")
+
+    def test_policy_update_notifies_active_org_users(self):
+        policy = TenantPolicy.objects.create(
+            organization=self.organization,
+            title="Attendance Policy",
+            description="Original description.",
+            applies_to="All employees",
+            enabled=True,
+            details=["Check in daily."],
+        )
+
+        self.client.force_authenticate(self.tenant_user)
+        response = self.client.patch(
+            reverse("tenant_policy_detail", kwargs={"policy_id": policy.id}),
+            {"description": "Updated description."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Notification.objects.filter(recipient=self.tenant_user, title="Policy update").count(), 1)
+        self.assertEqual(Notification.objects.filter(recipient=self.employee_user, title="Policy update").count(), 1)
