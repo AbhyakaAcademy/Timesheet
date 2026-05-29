@@ -115,6 +115,24 @@ export default function Table({ onPendingCountChange }) {
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
+  useEffect(() => {
+    if (typeof document === "undefined" || !selectedTimesheet) {
+      return;
+    }
+
+    const { body, documentElement } = document;
+    const previousBodyOverflow = body.style.overflow;
+    const previousHtmlOverflow = documentElement.style.overflow;
+
+    body.style.overflow = "hidden";
+    documentElement.style.overflow = "hidden";
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [selectedTimesheet]);
+
   const loadTimesheets = useCallback(async () => {
     setErrorMessage("");
     setLoading(true);
@@ -223,6 +241,13 @@ export default function Table({ onPendingCountChange }) {
     } catch (error) {
       setErrorMessage(error.message || "Unable to open uploaded file.");
     }
+  };
+
+  const closeDetail = () => {
+    setSelectedTimesheet(null);
+    setSelectedDetail(null);
+    setSelectedFiles([]);
+    stopEditingEntry();
   };
 
   const runAction = async (action) => {
@@ -393,21 +418,22 @@ export default function Table({ onPendingCountChange }) {
       </div>
 
       {selectedTimesheet ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-black/30 p-4">
+          <div className="flex min-h-full items-center justify-center">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
             <header className="flex items-start justify-between bg-blue-600 px-6 py-4 text-white">
               <div>
                 <h2 className="text-xl font-semibold">Timesheet Review</h2>
                 <p className="mt-1 text-base">Week starting {selectedTimesheet.weekStartingLabel}</p>
               </div>
-              <button type="button" onClick={() => { setSelectedTimesheet(null); setSelectedDetail(null); setSelectedFiles([]); }} className="rounded-md p-1.5 transition hover:bg-white/20" aria-label="Close timesheet review">
+              <button type="button" onClick={closeDetail} className="rounded-md p-1.5 transition hover:bg-white/20" aria-label="Close timesheet review">
                 <svg viewBox="0 0 20 20" className="h-7 w-7" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
                   <path d="m4 4 12 12M16 4 4 16" />
                 </svg>
               </button>
             </header>
 
-            <section className="max-h-[calc(90vh-96px)] overflow-y-auto">
+            <section className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-smooth">
               <div className="grid gap-6 border-b border-gray-200 bg-gray-50 px-6 py-6 md:grid-cols-2">
                 <div>
                   <p className="text-sm text-gray-500">Employee</p>
@@ -580,7 +606,7 @@ export default function Table({ onPendingCountChange }) {
               </div>
 
               <footer className="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
-                <button type="button" onClick={() => { setSelectedTimesheet(null); setSelectedDetail(null); setSelectedFiles([]); }} className="rounded-xl border border-gray-300 bg-white px-6 py-2 text-base font-medium text-gray-700 transition hover:bg-gray-100">
+                <button type="button" onClick={closeDetail} className="rounded-xl border border-gray-300 bg-white px-6 py-2 text-base font-medium text-gray-700 transition hover:bg-gray-100">
                   Close
                 </button>
                 {canRejectAction ? (
@@ -597,6 +623,7 @@ export default function Table({ onPendingCountChange }) {
                 ) : null}
               </footer>
             </section>
+          </div>
           </div>
         </div>
       ) : null}

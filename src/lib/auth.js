@@ -5,6 +5,7 @@ const EMPTY_SESSION = Object.freeze({
   userName: "",
 });
 const AUTH_SESSION_EVENT = "auth-session-updated";
+let refreshPromise = null;
 
 let cachedSessionKey = "";
 let cachedSession = EMPTY_SESSION;
@@ -84,6 +85,72 @@ export function clearSession() {
   cachedSession = EMPTY_SESSION;
   cachedSessionKey = "";
   window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+}
+
+export function updateAccessToken(accessToken) {
+  if (!accessToken) {
+    throw new Error("Missing access token.");
+  }
+
+  const currentSession = readSessionFromStorage();
+  localStorage.setItem("accessToken", accessToken);
+  cachedSession = {
+    token: accessToken,
+    role: currentSession.role || "",
+    userName: currentSession.userName || "",
+  };
+  cachedSessionKey = `${cachedSession.token}|${cachedSession.role}|${cachedSession.userName}`;
+  window.dispatchEvent(new Event(AUTH_SESSION_EVENT));
+}
+
+export async function refreshSessionToken() {
+  if (typeof window === "undefined") {
+    throw new Error("Token refresh is only available in the browser.");
+  }
+
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  const refreshToken = localStorage.getItem("refreshToken");
+  if (!refreshToken) {
+    throw new Error("No refresh token available.");
+  }
+
+  refreshPromise = (async () => {
+    let response;
+    try {
+      response = await fetch(`${getApiBaseUrl()}/auth/token/refresh/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ refresh: refreshToken }),
+      });
+    } catch {
+      throw new Error("Unable to refresh session.");
+    }
+
+    let data = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+
+    if (!response.ok || !data?.access) {
+      throw new Error(data?.detail || data?.error?.message || "Session refresh failed.");
+    }
+
+    updateAccessToken(data.access);
+    return data.access;
+  })();
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
 }
 
 function readSessionFromStorage() {

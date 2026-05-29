@@ -216,6 +216,56 @@ class ManagerEmployeeNotificationTests(APITestCase):
             ).exists()
         )
 
+    def test_add_timesheet_line_with_same_time_entry_updates_instead_of_duplicates(self):
+        timesheet = Timesheet.objects.create(
+            employee=self.employee,
+            week_start=week_start_for(timezone.now()),
+        )
+        entry = TimeEntry.objects.create(
+            employee=self.employee,
+            project=self.project,
+            source=TimeEntrySource.PUNCH,
+            start_time=timezone.now() - timedelta(minutes=20),
+            end_time=timezone.now(),
+            duration_minutes=20,
+        )
+
+        first_response = self.client.post(
+            reverse("add_timesheet_line", args=[timesheet.id]),
+            {
+                "date": timesheet.week_start.isoformat(),
+                "project_id": self.project.id,
+                "description": "Punch entry",
+                "hours": "0.33",
+                "shift": "DAY",
+                "time_entry_id": entry.id,
+            },
+            format="json",
+        )
+        self.assertEqual(first_response.status_code, 201)
+
+        second_response = self.client.post(
+            reverse("add_timesheet_line", args=[timesheet.id]),
+            {
+                "date": timesheet.week_start.isoformat(),
+                "project_id": self.project.id,
+                "description": "Updated punch entry",
+                "hours": "0.50",
+                "shift": "DAY",
+                "time_entry_id": entry.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(
+            TimesheetLine.objects.filter(timesheet__employee=self.employee, time_entry=entry).count(),
+            1,
+        )
+        line = TimesheetLine.objects.get(timesheet__employee=self.employee, time_entry=entry)
+        self.assertEqual(line.description, "Updated punch entry")
+        self.assertEqual(line.hours, Decimal("0.50"))
+
     @override_settings(
         DEBUG=True,
         EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",

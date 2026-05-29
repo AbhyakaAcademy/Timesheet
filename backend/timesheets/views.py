@@ -488,6 +488,33 @@ class AddTimesheetLineView(APIView):
         serializer = TimesheetLineCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
+        time_entry_id = payload.get("time_entry_id")
+        if time_entry_id is not None:
+            time_entry = get_object_or_404(
+                TimeEntry,
+                id=time_entry_id,
+                employee=request.user,
+            )
+            existing_line = (
+                TimesheetLine.objects.select_related("timesheet")
+                .filter(time_entry=time_entry, timesheet__employee=request.user)
+                .first()
+            )
+            if existing_line is not None:
+                if existing_line.timesheet.status != TimesheetStatus.DRAFT:
+                    return Response(
+                        {"detail": "This punch entry is already linked to a non-draft timesheet line."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                existing_line.timesheet = timesheet
+                existing_line.date = payload["date"]
+                existing_line.project_id = payload["project_id"]
+                existing_line.description = payload.get("description", "")
+                existing_line.hours = payload["hours"]
+                existing_line.shift = payload.get("shift")
+                existing_line.save()
+                return Response(TimesheetLineSerializer(existing_line).data, status=status.HTTP_200_OK)
+
         line = TimesheetLine.objects.create(
             timesheet=timesheet,
             date=payload["date"],
@@ -495,7 +522,7 @@ class AddTimesheetLineView(APIView):
             description=payload.get("description", ""),
             hours=payload["hours"],
             shift=payload.get("shift"),
-            time_entry_id=payload.get("time_entry_id"),
+            time_entry_id=time_entry_id,
         )
         notify_employee_managers(
             request.user,

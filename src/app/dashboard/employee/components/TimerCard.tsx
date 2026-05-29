@@ -96,6 +96,56 @@ const addOneDayToLocalDateTime = (value: string) => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+const getDatePart = (value: string) => value.slice(0, 10);
+
+const getTimePart = (value: string) => value.slice(11, 16);
+
+const buildLocalDateTime = (date: string, time: string) => {
+  if (!date || !time) return "";
+
+  const [hoursValue, minutes] = time.split(":");
+  const hours = Number(hoursValue);
+
+  return `${date}T${String(hours).padStart(2, "0")}:${minutes}`;
+};
+
+const mergeLocalDateTime = ({
+  currentValue,
+  nextDate,
+  nextTime,
+  fallbackDate,
+  fallbackTime,
+}: {
+  currentValue: string;
+  nextDate?: string;
+  nextTime?: string;
+  fallbackDate: string;
+  fallbackTime: string;
+}) => {
+  const currentDate = getDatePart(currentValue);
+  const currentTime = getTimePart(currentValue);
+  const date = nextDate ?? (currentDate || fallbackDate);
+  const time = nextTime ?? (currentTime || fallbackTime);
+  return buildLocalDateTime(date, time);
+};
+
+const openNativePicker = (event: React.MouseEvent<HTMLInputElement> | React.FocusEvent<HTMLInputElement>) => {
+  const input = event.currentTarget as HTMLInputElement & { showPicker?: () => void };
+  input.showPicker?.();
+};
+
+const timeOptions = Array.from({ length: 96 }, (_, index) => {
+  const hours = Math.floor(index / 4);
+  const minutes = (index % 4) * 15;
+  const value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  const label = new Date(2000, 0, 1, hours, minutes).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return { value, label };
+});
+
 const formatDuration = (minutes: number) => {
   const totalSeconds = Math.max(Math.round(minutes * 60), 0);
   const hours = Math.floor(totalSeconds / 3600);
@@ -129,7 +179,6 @@ export function TimerCard({
 }: TimerCardProps) {
   const [now, setNow] = useState(() => new Date());
   const [projectId, setProjectId] = useState<number | "">("");
-  const [note, setNote] = useState("");
 
   const [manualRequestType, setManualRequestType] = useState("");
   const [manualRequestProjectId, setManualRequestProjectId] = useState<number | "">("");
@@ -158,8 +207,7 @@ export function TimerCard({
     }
     setErrorMessage("");
     try {
-      await onPunchIn({ projectId: Number(projectId), note });
-      setNote("");
+      await onPunchIn({ projectId: Number(projectId), note: "" });
     } catch (error: any) {
       setErrorMessage(error.message || "Punch in failed.");
     }
@@ -182,8 +230,7 @@ export function TimerCard({
 
     setErrorMessage("");
     try {
-      await onPunchOut(activeEntry.id, { note });
-      setNote("");
+      await onPunchOut(activeEntry.id, { note: "" });
     } catch (error: any) {
       setErrorMessage(error.message || "Punch out failed.");
     }
@@ -223,14 +270,19 @@ export function TimerCard({
     const selectedProject = projects.find((project) => project.id === manualRequestProjectId);
     let normalizedEndDateTime = manualRequestEndDateTime;
 
-    if (
-      !requestTypeInput ||
-      !manualRequestProjectId ||
-      !manualRequestStartDateTime ||
-      !manualRequestEndDateTime ||
-      !commentInput
-    ) {
-      setManualError("Request reason, project, start time, end time, and details are required.");
+    const missingFields: string[] = [];
+    if (!requestTypeInput) missingFields.push("request reason");
+    if (!manualRequestProjectId) missingFields.push("project");
+    if (!manualRequestStartDateTime) missingFields.push("start date and time");
+    if (!manualRequestEndDateTime) missingFields.push("end date and time");
+    if (!commentInput) missingFields.push("employee details");
+
+    if (missingFields.length > 0) {
+      const missingLabel =
+        missingFields.length === 1
+          ? missingFields[0]
+          : `${missingFields.slice(0, -1).join(", ")} and ${missingFields[missingFields.length - 1]}`;
+      setManualError(`Please enter ${missingLabel}.`);
       return;
     }
 
@@ -361,17 +413,6 @@ export function TimerCard({
           ) : null}
           {uploadMessage ? <p className="mt-2 text-xs text-indigo-700">{uploadMessage}</p> : null}
         </div>
-
-        <div className="rounded-2xl border border-gray-200 bg-white p-4">
-          <label className="text-sm font-medium text-gray-700">What are you working on? (optional)</label>
-          <textarea
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="Describe what you are working on..."
-            className="mt-2 w-full min-h-[90px] rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
-
         {errorMessage ? <p className="text-xs text-rose-600">{errorMessage}</p> : null}
       </div>
 
@@ -407,21 +448,91 @@ export function TimerCard({
           </div>
           <div>
             <label className="text-xs font-medium text-gray-600">Start date and time</label>
-            <input
-              type="datetime-local"
-              value={manualRequestStartDateTime}
-              onChange={(event) => setManualRequestStartDateTime(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <input
+                type="date"
+                value={getDatePart(manualRequestStartDateTime)}
+                max={getLocalDateValue()}
+                onClick={openNativePicker}
+                onFocus={openNativePicker}
+                onChange={(event) =>
+                  setManualRequestStartDateTime(
+                    mergeLocalDateTime({
+                      currentValue: manualRequestStartDateTime,
+                      nextDate: event.target.value,
+                      fallbackDate: getLocalDateValue(),
+                      fallbackTime: "09:00",
+                    })
+                  )
+                }
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <select
+                value={getTimePart(manualRequestStartDateTime)}
+                onChange={(event) =>
+                  setManualRequestStartDateTime(
+                    mergeLocalDateTime({
+                      currentValue: manualRequestStartDateTime,
+                      nextTime: event.target.value,
+                      fallbackDate: getLocalDateValue(),
+                      fallbackTime: "09:00",
+                    })
+                  )
+                }
+                className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select time</option>
+                {timeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div>
             <label className="text-xs font-medium text-gray-600">End date and time</label>
-            <input
-              type="datetime-local"
-              value={manualRequestEndDateTime}
-              onChange={(event) => setManualRequestEndDateTime(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <input
+                type="date"
+                value={getDatePart(manualRequestEndDateTime)}
+                max={getLocalDateValue()}
+                onClick={openNativePicker}
+                onFocus={openNativePicker}
+                onChange={(event) =>
+                  setManualRequestEndDateTime(
+                    mergeLocalDateTime({
+                      currentValue: manualRequestEndDateTime,
+                      nextDate: event.target.value,
+                      fallbackDate: getDatePart(manualRequestStartDateTime) || getLocalDateValue(),
+                      fallbackTime: "18:00",
+                    })
+                  )
+                }
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <select
+                value={getTimePart(manualRequestEndDateTime)}
+                onChange={(event) =>
+                  setManualRequestEndDateTime(
+                    mergeLocalDateTime({
+                      currentValue: manualRequestEndDateTime,
+                      nextTime: event.target.value,
+                      fallbackDate: getDatePart(manualRequestStartDateTime) || getLocalDateValue(),
+                      fallbackTime: "18:00",
+                    })
+                  )
+                }
+                className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">Select time</option>
+                {timeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <p className="mt-1 text-[11px] text-gray-500">
               If the end time is earlier than the start time on the same date, it will be treated as a next-day night shift.
             </p>

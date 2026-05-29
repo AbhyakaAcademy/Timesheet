@@ -17,16 +17,16 @@ export default function SignUpPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [organizationName, setOrganizationName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   const [emailError, setEmailError] = useState("");
+  const [phoneError, setPhoneError] = useState("");
   const [organizationError, setOrganizationError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
-  const [termsError, setTermsError] = useState("");
   const [formError, setFormError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [verificationUrl, setVerificationUrl] = useState("");
@@ -57,6 +57,24 @@ export default function SignUpPage() {
       return false;
     }
     setOrganizationError("");
+    return true;
+  };
+
+  const validatePhone = (value) => {
+    const normalizedValue = value?.trim() || "";
+
+    if (!normalizedValue) {
+      setPhoneError("Phone number is required");
+      return false;
+    }
+
+    const digitsOnly = normalizedValue.replace(/\D/g, "");
+    if (digitsOnly.length < 10) {
+      setPhoneError("Please enter a valid phone number");
+      return false;
+    }
+
+    setPhoneError("");
     return true;
   };
 
@@ -98,15 +116,6 @@ export default function SignUpPage() {
     return true;
   };
 
-  const validateTerms = (value) => {
-    if (!value) {
-      setTermsError("You must accept the terms and conditions.");
-      return false;
-    }
-    setTermsError("");
-    return true;
-  };
-
   // ---------------- SUBMIT ----------------
 
   const handleSubmit = (e) => {
@@ -117,17 +126,18 @@ export default function SignUpPage() {
     setResendMessage("");
 
     const emailValid = validateEmail(email);
+    const phoneValid = validatePhone(phone);
     const organizationValid = validateOrganization(organizationName);
     const passwordValid = validatePassword(password);
     const confirmValid = validateConfirmPassword(confirmPassword);
-    const termsValid = validateTerms(acceptedTerms);
 
-    if (!emailValid || !organizationValid || !passwordValid || !confirmValid || !termsValid) return;
+    if (!emailValid || !phoneValid || !organizationValid || !passwordValid || !confirmValid) return;
 
     setIsLoading(true);
 
     requestTenantSignup({
       email,
+      phone,
       password,
       confirm_password: confirmPassword,
       organization_name: organizationName,
@@ -156,7 +166,7 @@ export default function SignUpPage() {
 
   const handleResendVerification = () => {
     if (!email) {
-      setFormError("Enter your email address first.");
+      setFormError("Enter your details first.");
       return;
     }
 
@@ -273,7 +283,7 @@ export default function SignUpPage() {
               {/* ORGANIZATION */}
               <div>
                 <label className="block text-sm text-gray-700 mb-2">
-                  Organization Name *
+                  Organization Name <span className="text-red-600">*</span>
                 </label>
                 <input
                   type="text"
@@ -296,7 +306,7 @@ export default function SignUpPage() {
               {/* EMAIL */}
               <div>
                 <label className="block text-sm text-gray-700 mb-2">
-                  Email Address *
+                  Email Address <span className="text-red-600">*</span>
                 </label>
                 <input
                   type="email"
@@ -316,10 +326,32 @@ export default function SignUpPage() {
                 {emailError && <p className="text-red-600 text-sm mt-1">{emailError}</p>}
               </div>
 
+              <div>
+                <label className="block text-sm text-gray-700 mb-2">
+                  Phone Number <span className="text-red-600">*</span>
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => {
+                    setPhone(e.target.value);
+                    if (phoneError) validatePhone(e.target.value);
+                  }}
+                  onBlur={(e) => validatePhone(e.target.value)}
+                  className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 ${
+                    phoneError
+                      ? "border-red-300 focus:ring-red-500/20"
+                      : "border-gray-300 focus:ring-indigo-500/20"
+                  }`}
+                  placeholder="+1 (555) 123-4567"
+                />
+                {phoneError && <p className="text-red-600 text-sm mt-1">{phoneError}</p>}
+              </div>
+
               {/* PASSWORD */}
               <div>
                 <label className="block text-sm text-gray-700 mb-2">
-                  Create Password *
+                  Create Password <span className="text-red-600">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -356,7 +388,7 @@ export default function SignUpPage() {
               {/* CONFIRM PASSWORD */}
               <div>
                 <label className="block text-sm text-gray-700 mb-2">
-                  Confirm Password *
+                  Confirm Password <span className="text-red-600">*</span>
                 </label>
                 <div className="relative">
                   <input
@@ -405,31 +437,6 @@ export default function SignUpPage() {
                   ))}
                 </div>
               )}
-
-              <div>
-                <label
-                  className={`flex items-start gap-3 rounded-lg border px-4 py-3 transition ${
-                    termsError ? "border-red-300 bg-red-50" : "border-gray-200 bg-gray-50"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={acceptedTerms}
-                    onChange={(e) => {
-                      setAcceptedTerms(e.target.checked);
-                      if (termsError) validateTerms(e.target.checked);
-                    }}
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span className="text-sm text-gray-700">
-                    I agree to the{" "}
-                    <span className="font-semibold text-indigo-600">Terms and Conditions</span>
-                    {" "}and{" "}
-                    <span className="font-semibold text-indigo-600">Privacy Policy</span>.
-                  </span>
-                </label>
-                {termsError ? <p className="mt-1 text-sm text-red-600">{termsError}</p> : null}
-              </div>
 
               {/* SUBMIT */}
               <button

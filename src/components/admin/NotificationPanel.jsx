@@ -1,5 +1,6 @@
 import { X, AlertCircle, CheckCircle, Info, DollarSign } from 'lucide-react';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const initialNotifications = [
   {
@@ -11,6 +12,7 @@ const initialNotifications = [
     icon: CheckCircle,
     color: 'text-green-600',
     bgColor: 'bg-green-50',
+    href: '/dashboard/admin/subscriptions',
   },
   {
     id: 2,
@@ -21,6 +23,7 @@ const initialNotifications = [
     icon: AlertCircle,
     color: 'text-red-600',
     bgColor: 'bg-red-50',
+    href: '/dashboard/admin/invoices',
   },
   {
     id: 3,
@@ -31,6 +34,7 @@ const initialNotifications = [
     icon: Info,
     color: 'text-blue-600',
     bgColor: 'bg-blue-50',
+    href: '/dashboard/admin/system-health',
   },
   {
     id: 4,
@@ -41,6 +45,7 @@ const initialNotifications = [
     icon: DollarSign,
     color: 'text-green-600',
     bgColor: 'bg-green-50',
+    href: '/dashboard/admin/revenue',
   },
   {
     id: 5,
@@ -51,6 +56,7 @@ const initialNotifications = [
     icon: Info,
     color: 'text-blue-600',
     bgColor: 'bg-blue-50',
+    href: '/dashboard/admin/issues?ticket=TKT-1892',
   },
 ];
 
@@ -78,6 +84,7 @@ function getVisibleNotifications() {
 }
 
 export function NotificationPanel({ isOpen, onClose }) {
+  const router = useRouter();
   const [notifications, setNotifications] = useState(getVisibleNotifications);
 
   const clearAllNotifications = () => {
@@ -89,6 +96,14 @@ export function NotificationPanel({ isOpen, onClose }) {
   const clearNotification = (notificationId) => {
     writeDismissedNotificationIds([...readDismissedNotificationIds(), notificationId]);
     setNotifications((prev) => prev.filter((item) => item.id !== notificationId));
+  };
+
+  const handleNotificationClick = (notification) => {
+    clearNotification(notification.id);
+    onClose();
+    if (notification.href) {
+      router.push(notification.href);
+    }
   };
 
   if (!isOpen) return null;
@@ -136,6 +151,7 @@ export function NotificationPanel({ isOpen, onClose }) {
               return (
                 <div
                   key={notification.id}
+                  onClick={() => handleNotificationClick(notification)}
                   className="rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 cursor-pointer transition-colors"
                 >
                   <div className="flex gap-3">
@@ -147,7 +163,10 @@ export function NotificationPanel({ isOpen, onClose }) {
                         <p className="text-sm font-medium text-gray-900">{notification.title}</p>
                         <button
                           type="button"
-                          onClick={() => clearNotification(notification.id)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            clearNotification(notification.id);
+                          }}
                           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-xs font-semibold leading-none text-gray-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                           aria-label="Clear notification"
                         >

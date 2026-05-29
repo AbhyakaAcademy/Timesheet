@@ -48,6 +48,8 @@ const rateOptions = [
   { key: "annualPay", label: "Annual" },
 ];
 
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function ManagerEmployeesPage() {
   const [pendingCount] = useState(() => getManagerDashboardSlice("reportsPendingCount", 0));
   const [employees, setEmployees] = useState(defaultEmployees);
@@ -98,6 +100,11 @@ export default function ManagerEmployeesPage() {
 
     if (!name || !email || !department || !employeeCode) {
       setErrorMessage("Enter all employee details before saving.");
+      return;
+    }
+
+    if (!emailPattern.test(email)) {
+      setErrorMessage("Enter a valid email address.");
       return;
     }
 
@@ -321,8 +328,14 @@ export default function ManagerEmployeesPage() {
               <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-700">Email</span>
                 <input
+                  type="email"
                   value={employeeForm.email}
-                  onChange={(event) => setEmployeeForm((prev) => ({ ...prev, email: event.target.value }))}
+                  onChange={(event) => {
+                    setEmployeeForm((prev) => ({ ...prev, email: event.target.value }));
+                    if (errorMessage === "Enter a valid email address.") {
+                      setErrorMessage("");
+                    }
+                  }}
                   placeholder="Enter employee email"
                   className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500"
                 />

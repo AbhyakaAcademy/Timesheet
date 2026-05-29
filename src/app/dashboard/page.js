@@ -331,9 +331,49 @@ const defaultProfile = {
 const TENANT_NOTIFICATIONS_STORAGE_KEY = "tenantDashboardNotifications";
 
 const defaultTenantNotifications = [
-  { id: 1, title: "Subscription", message: "Enterprise plan renews on Mar 1, 2026.", read: false },
-  { id: 2, title: "Policy", message: "Working Hours Policy was updated recently.", read: false },
+  {
+    id: 1,
+    title: "Subscription",
+    message: "Enterprise plan renews on Mar 1, 2026.",
+    read: false,
+    targetSection: "Billing & Subscription",
+  },
+  {
+    id: 2,
+    title: "Policy",
+    message: "Working Hours Policy was updated recently.",
+    read: false,
+    targetSection: "Policies",
+  },
 ];
+
+function inferNotificationTarget(notification) {
+  const title = String(notification?.title || "").toLowerCase();
+  const message = String(notification?.message || "").toLowerCase();
+  const combined = `${title} ${message}`;
+
+  if (combined.includes("subscription") || combined.includes("invoice") || combined.includes("billing")) {
+    return { targetSection: "Billing & Subscription" };
+  }
+
+  if (combined.includes("policy")) {
+    return { targetSection: "Policies" };
+  }
+
+  if (combined.includes("department")) {
+    return { targetSection: "Departments" };
+  }
+
+  if (combined.includes("user") || combined.includes("employee") || combined.includes("manager")) {
+    return { targetSection: "Users" };
+  }
+
+  if (combined.includes("audit")) {
+    return { targetSection: "Audit Logs" };
+  }
+
+  return { targetSection: "Dashboard" };
+}
 
 function titleCase(value) {
   if (!value) return "";
@@ -510,11 +550,14 @@ function normalizeProfile(profile) {
 }
 
 function normalizeTenantNotification(notification) {
+  const inferredTarget = inferNotificationTarget(notification);
   return {
     id: notification.id,
     title: notification.title || "",
     message: notification.message || "",
     read: Boolean(notification.read),
+    targetSection: notification.targetSection || notification.target?.section || inferredTarget.targetSection,
+    targetSettingsTab: notification.targetSettingsTab || notification.target?.settingsTab || "",
   };
 }
 
@@ -646,6 +689,17 @@ export default function DashboardPage() {
     setNotifications((current) => current.map((item) => ({ ...item, read: true })));
   };
 
+  const handleNotificationSelect = (notification) => {
+    setNotifications((current) => current.filter((item) => item.id !== notification.id));
+    setShowNotifications(false);
+
+    if (notification.targetSettingsTab) {
+      setSettingsTab(notification.targetSettingsTab);
+    }
+
+    setActive(notification.targetSection || "Dashboard");
+  };
+
   const saveUser = async (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -685,6 +739,19 @@ export default function DashboardPage() {
       showToast(`${targetUser.name} status updated`);
     } catch (error) {
       showToast(error.message || "User status could not be updated");
+    }
+  };
+
+  const deleteUser = async (targetUser) => {
+    const confirmed = window.confirm(`Delete ${targetUser.name}? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      await tenantApi.deleteUser(targetUser.id);
+      setUsers((current) => current.filter((user) => user.id !== targetUser.id));
+      showToast(`${targetUser.name} deleted`);
+    } catch (error) {
+      showToast(error.message || "User could not be deleted");
     }
   };
 
@@ -988,6 +1055,7 @@ export default function DashboardPage() {
               setShowNotifications(false);
             }}
             onClearNotification={(id) => setNotifications((current) => current.filter((item) => item.id !== id))}
+            onNotificationSelect={handleNotificationSelect}
             onOpenProfile={() => setModal({ type: "profile" })}
             onOpenSettings={() => setActive("Settings")}
             onLogout={handleLogout}
@@ -1006,6 +1074,7 @@ export default function DashboardPage() {
               onAdd={() => setModal({ type: "user" })}
               onEdit={(user) => setModal({ type: "user", item: user })}
               onToggleStatus={toggleUserStatus}
+              onDelete={deleteUser}
             />
           ) : null}
           {active === "Departments" ? (
@@ -1088,6 +1157,7 @@ function TenantHeader({
   onToggleNotifications,
   onClearNotifications,
   onClearNotification,
+  onNotificationSelect,
   onOpenProfile,
   onOpenSettings,
   onLogout,
@@ -1183,15 +1253,22 @@ function TenantHeader({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <button
+                        type="button"
+                        onClick={() => onNotificationSelect(item)}
+                        className="min-w-0 flex-1 text-left transition hover:opacity-80"
+                      >
                         <p className={`text-sm ${item.read ? "font-medium text-gray-900" : "font-semibold text-gray-950"}`}>
                           {item.title}
                         </p>
                         <p className="mt-1 text-sm text-gray-600">{item.message}</p>
-                      </div>
+                      </button>
                       <button
                         type="button"
-                        onClick={() => onClearNotification(item.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onClearNotification(item.id);
+                        }}
                         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-300 bg-white text-xs font-semibold leading-none text-gray-500 transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600"
                         aria-label="Clear notification"
                       >
@@ -1262,7 +1339,7 @@ function MetricCard({ label, value }) {
   );
 }
 
-function UsersPage({ users, onAdd, onEdit, onToggleStatus }) {
+function UsersPage({ users, onAdd, onEdit, onToggleStatus, onDelete }) {
   return (
     <>
       <PageHeader
@@ -1291,11 +1368,24 @@ function UsersPage({ users, onAdd, onEdit, onToggleStatus }) {
                 <td className="px-6 py-5"><StatusBadge value={user.status} /></td>
                 <td className="px-6 py-5 text-base text-slate-500">{user.department}</td>
                 <td className="px-6 py-5">
-                  <div className="flex gap-2">
-                    <OutlineButton onClick={() => onEdit(user)}>Edit</OutlineButton>
-                    <OutlineButton onClick={() => onToggleStatus(user)}>
-                      {user.status === "Active" ? "Deactivate" : "Activate"}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <OutlineButton onClick={() => onEdit(user)} className="min-w-[84px] justify-center">
+                      Edit
                     </OutlineButton>
+                    <button
+                      type="button"
+                      onClick={() => onToggleStatus(user)}
+                      className={`inline-flex min-w-[112px] items-center justify-center rounded border px-4 py-2 text-sm font-semibold transition ${
+                        user.status === "Active"
+                          ? "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                          : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                      }`}
+                    >
+                      {user.status === "Active" ? "Deactivate" : "Activate"}
+                    </button>
+                    <DangerButton onClick={() => onDelete(user)} className="min-w-[88px] justify-center">
+                      Delete
+                    </DangerButton>
                   </div>
                 </td>
               </tr>
@@ -2847,17 +2937,25 @@ function StatusBadge({ value }) {
   );
 }
 
-function OutlineButton({ children, onClick, type = "button" }) {
+function OutlineButton({ children, onClick, type = "button", className = "" }) {
   return (
-    <button type={type} onClick={onClick} className="inline-flex items-center gap-2 rounded border border-slate-400 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+    <button
+      type={type}
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 ${className}`}
+    >
       {children}
     </button>
   );
 }
 
-function DangerButton({ children, onClick }) {
+function DangerButton({ children, onClick, className = "" }) {
   return (
-    <button type="button" onClick={onClick} className="inline-flex items-center gap-2 rounded border border-red-400 bg-white px-4 py-2 text-sm font-semibold text-red-600">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 ${className}`}
+    >
       {children}
     </button>
   );
